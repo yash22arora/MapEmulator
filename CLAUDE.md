@@ -1,0 +1,76 @@
+# Map Emulator — Project Instructions
+
+## What this is
+
+A learning project for understanding how apps like Uber/Rapido/Swiggy show
+smooth live rider/cab movement on a map: **Server-Sent Events (SSE)** from
+backend to client, plus **client-side interpolation** so the marker glides
+instead of jumping. A Node backend also has a small in-memory **queue**
+(with conflation) between ingestion and broadcast, to demonstrate
+producer/consumer decoupling and backpressure — the kind of pattern real
+location-tracking backends use.
+
+Full design/rationale lives in
+[docs/superpowers/specs/2026-07-02-live-location-tracking-emulator-design.md](docs/superpowers/specs/2026-07-02-live-location-tracking-emulator-design.md).
+Read that file for the complete architecture and phase table — this file is
+just the quick-reference so a session doesn't have to re-derive it.
+
+## Who's doing what (read this before writing any code)
+
+This is a **teaching engagement, not a build-it-for-them task**.
+
+- The owner (iOS dev, some web/backend experience) writes the
+  implementation themselves.
+- Claude's job: explain the concept for the current phase, provide hints
+  and boilerplate/setup syntax **on request** (e.g. exact SPM incantation,
+  Express route syntax) — not full working solutions.
+- Do not jump ahead and implement a later phase's code "to save time."
+- At the end of each phase, quiz the owner on the concept before moving to
+  the next phase. Don't skip this step even if the owner seems eager to move
+  on.
+- No automated test suite by design — verification is manual: `curl` /
+  browser dev tools for the backend, iOS Simulator + console logs for the
+  client.
+
+## Tech stack (locked in during design — don't re-litigate)
+
+- **Backend:** Node.js + Express, plain JS (no TS), in-memory state only.
+- **Control UI:** static HTML/JS served by Express, Leaflet + OpenStreetMap
+  tiles (no API key, no billing account).
+- **iOS client:** SwiftUI + Apple **MapKit** (not Google Maps — avoids
+  Google Cloud billing account requirement; concepts transfer 1:1 if he
+  wants to swap SDKs later as a stretch goal).
+- **SSE on iOS:** hand-rolled parser over `URLSession.bytes(for:)` — no
+  third-party SSE library. The whole point is understanding the wire
+  protocol.
+- **Networking:** iOS Simulator + `http://localhost:<port>` — no LAN IP
+  config needed since Simulator shares the Mac's network stack.
+
+## Architecture at a glance
+
+```
+Leaflet control UI --POST /location--> enqueue --> worker loop (~500ms,
+conflates to latest) --> SSE broadcast --> iOS hand-rolled SSE client -->
+client-side interpolation --> MapKit annotation (cab/bike PNG)
+```
+
+Single rider, single client, no auth, no DB — everything resets on server
+restart.
+
+## Phase progress tracker
+
+Keep this section updated as phases complete, so a fresh session with lost
+context can tell where things stand at a glance.
+
+- [ ] Phase 0 — Setup (folder structure, Express skeleton, Xcode scaffold)
+- [ ] Phase 1 — SSE fundamentals (hardcoded `/stream`, verified via `curl`)
+- [ ] Phase 2 — Naive end-to-end pipe (control UI → POST → direct SSE broadcast)
+- [ ] Phase 3 — Queue + rate-limited worker (conflation)
+- [ ] Phase 4 — iOS client, no interpolation (see the "jump" problem)
+- [ ] Phase 5 — Client-side interpolation (lerp, fixed duration)
+- [ ] Phase 6 — Realism upgrade (adaptive duration + bearing rotation)
+- [ ] Phase 7 — Resilience (SSE reconnect/retry)
+
+Stretch goals (not started until core phases are done): Google Maps SDK
+swap-in, multiple riders, auto-drive-a-route mode, replay buffer on
+reconnect.
