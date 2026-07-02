@@ -85,7 +85,7 @@ context can tell where things stand at a glance.
 - [x] Phase 0 — Setup (folder structure, Express skeleton, Xcode scaffold)
 - [x] Phase 1 — SSE fundamentals (hardcoded `/stream`, verified via `curl`)
 - [x] Phase 2 — Naive end-to-end pipe (control UI → POST → direct SSE broadcast)
-- [ ] Phase 3 — Queue + rate-limited worker (conflation)
+- [x] Phase 3 — Queue + rate-limited worker (conflation)
 - [ ] Phase 4 — iOS client, no interpolation (see the "jump" problem)
 - [ ] Phase 5 — Client-side interpolation (lerp, fixed duration)
 - [ ] Phase 6 — Realism upgrade (adaptive duration + bearing rotation)

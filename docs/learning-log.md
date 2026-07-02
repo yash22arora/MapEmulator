@@ -138,3 +138,42 @@ still be accurate? What's the risk of it becoming stale?
   log-and-continue). So a stale, ungracefully-dropped connection isn't
   just wasted work sitting in `connections` — it's a live crash risk.
   Deferred to Phase 7, not fixed now.
+
+---
+
+## Phase 3 — Queue + rate-limited worker (conflation)
+
+Backend was converted from plain JS to TypeScript during this phase (owner
+request — see Amendments in the design spec). Implementation found a real
+bug live: `types.d.ts` declared `ts: Date`, but the control UI actually
+sends `Date.now()` (a `number`) through `JSON.stringify` — TypeScript
+compiled cleanly anyway since it was just trusting the asserted type, not
+validating the actual JSON payload. Fixed by changing the field to
+`ts: number`, which matches what's really flowing through the system.
+
+**Q:** Why does `req.body.ts` end up a plain `number` at runtime, even
+though nothing in Express or TypeScript explicitly converts anything?
+Where exactly does the "type information" actually come from and stop
+applying?
+
+**Raw answer:**
+> req.body is parsed into a JSON and JSON doesn't have Date type. Also,
+> the controller UI sends Date.now() which is the number of milliseconds
+> (number type).
+>
+> Type checking doesn't produce / throw errors at network interface as
+> typescript trusts our imposed type.
+
+**Assessment / corrections:**
+- Correct on both points: JSON has no `Date` type, and TypeScript trusts
+  the asserted type at the boundary rather than checking it.
+- One more layer worth having explicit: TypeScript types don't exist at
+  runtime **at all** — they're fully erased by `tsc`. By the time `node`
+  executes the compiled output, there is no `LocationUpdate` interface
+  anywhere to check against, even in principle. `Request<{}, {},
+  LocationUpdate>` is a compile-time lens imposed on `req.body`, not
+  something verified. `express.json()` just calls `JSON.parse()` — it has
+  no awareness of `LocationUpdate` and can't validate against it. This is
+  why runtime boundary validation (parsing `unknown` into a checked type,
+  e.g. with `zod`) is a distinct discipline from "having TypeScript types"
+  — only one of them touches actual runtime data.
