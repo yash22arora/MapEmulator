@@ -36,7 +36,7 @@ quiz the owner after each phase to confirm understanding before proceeding.
 
 ```
 Map Emulator/
-├── backend/              Node.js + Express
+├── backend/              Node.js + Express + TypeScript
 │   ├── public/            Leaflet + OpenStreetMap control UI (static HTML/JS)
 │   └── src/                Express app: ingestion endpoint, in-memory queue,
 │                            worker loop, SSE broadcast endpoint
@@ -125,3 +125,15 @@ backend stack (Node/Express), control UI map (Leaflet/OSM), networking
 (Simulator + localhost), interpolation depth (basic first, realism as
 Phase 6), and resilience scope (Phase 7, included) were all resolved during
 design discussion.
+
+## Amendments
+
+- **2026-07-02, during Phase 3:** Backend switched from plain JS to
+  **TypeScript** (owner requested strongly-typed data for the queue/SSE
+  payloads). `nodemon` (added just before this) was replaced by `tsx
+  watch`, which handles TS compilation and file-watching in one tool.
+  Build/run is now `npm run build` (`tsc`) + `npm start`, or `npm run dev`
+  for a watch-mode dev server. The control UI (`backend/public/*`) stays
+  plain JS/HTML — it's browser-loaded via `<script>` tag with no bundler,
+  so TS there would need a separate build step for no real benefit at this
+  project's scale.

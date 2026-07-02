@@ -46,7 +46,10 @@ This is a **teaching engagement, not a build-it-for-them task**.
 
 ## Tech stack (locked in during design — don't re-litigate)
 
-- **Backend:** Node.js + Express, plain JS (no TS), in-memory state only.
+- **Backend:** Node.js + Express + **TypeScript** (switched from plain JS
+  during Phase 3 — see Amendments in the design spec), in-memory state
+  only. Dev: `npm run dev` (`tsx watch`). Build: `npm run build` (`tsc` →
+  `dist/`) then `npm start`.
 - **Control UI:** static HTML/JS served by Express, Leaflet + OpenStreetMap
   tiles (no API key, no billing account).
 - **iOS client:** SwiftUI + Apple **MapKit** (not Google Maps — avoids
