@@ -85,3 +85,56 @@ really is?
   proxies/intermediaries. It's meaningless over HTTP/2, which forbids
   connection-specific headers entirely (multiplexing makes the concept
   moot).
+
+---
+
+## Phase 2 — Naive end-to-end pipe
+
+**Q1:** If you open the control UI in two separate browser tabs at once
+and click the map in one of them, what happens in the other tab? Walk
+through why, based on how `connections` is used in `server.js`.
+
+**Raw answer:**
+> The connections are the ones listening to GET /stream endpoint while the
+> controller UI POSTs to /location. We are not maintaining list of
+> connections for the control UI. So, they operate as individual instances
+> of the control UI and dont remain in sync. But they post to the same
+> endpoint POST /location and events from both of them are relayed to the
+> list of connected clients listening at GET /stream.
+
+**Assessment / corrections:**
+- Correct. Sharper framing: the control UI is currently **producer-only**
+  — it never opens an `EventSource`/SSE connection back to `/stream`. The
+  marker moving on click is purely optimistic (`marker.setLatLng()` set
+  locally, before the `POST` even completes), not a reflection of server
+  state. Two tabs are fully independent because neither is *listening*,
+  only *sending*. The only shared state is the backend's `connections`
+  array of actual `/stream` subscribers (currently just `curl -N`, later
+  the iOS app). No conflict resolution exists if two tabs click
+  simultaneously — last `POST` to land wins — which is fine for a
+  single-rider toy app but worth naming.
+
+**Q2:** What would currently happen if a client's `/stream` connection
+died *without* the browser cleanly signaling a close (e.g. the process was
+killed, or network dropped ungracefully) — would the `connections` array
+still be accurate? What's the risk of it becoming stale?
+
+**Raw answer:**
+> If the client dropped ungracefully, the cleanup wouldn't execute and the
+> res object will remain in the connection pool. Our POST /location
+> endpoint will keep trying to push updates there but there will be no one
+> to consume it.
+
+**Assessment / corrections:**
+- Correct, and there's a sharper edge worth knowing now even though the
+  fix is deferred to Phase 7 (resilience): `req.on('close')` fires
+  reliably on a *clean* disconnect (TCP FIN sent — tab closed, browser
+  navigates away). On an *abrupt* disconnect (WiFi drop, client crash, no
+  FIN), Node may not detect the dead socket until it actually tries to
+  write to it — and that failed write emits an **`error` event
+  asynchronously** on the response/socket. An `error` event with no
+  listener is one of the few things that can crash a Node process outright
+  (unlike most errors, unhandled `'error'` events throw rather than
+  log-and-continue). So a stale, ungracefully-dropped connection isn't
+  just wasted work sitting in `connections` — it's a live crash risk.
+  Deferred to Phase 7, not fixed now.
