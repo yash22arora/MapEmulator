@@ -15,6 +15,11 @@ Full design/rationale lives in
 Read that file for the complete architecture and phase table — this file is
 just the quick-reference so a session doesn't have to re-derive it.
 
+Every phase-end concept quiz (question, raw answer, corrections) is logged
+in [docs/learning-log.md](docs/learning-log.md) — check it for what's
+already been covered and where the owner's understanding has needed
+correcting before.
+
 ## Who's doing what (read this before writing any code)
 
 This is a **teaching engagement, not a build-it-for-them task**.
@@ -28,6 +33,13 @@ This is a **teaching engagement, not a build-it-for-them task**.
 - At the end of each phase, quiz the owner on the concept before moving to
   the next phase. Don't skip this step even if the owner seems eager to move
   on.
+- Log every quiz round in
+  [docs/learning-log.md](docs/learning-log.md): the exact question asked,
+  the owner's raw answer verbatim (don't paraphrase/clean it up), and
+  Claude's assessment/corrections/additions. Update it immediately after
+  each quiz, before moving to the next phase — this is what lets a
+  context-lost session see not just *what* was covered but *what the owner
+  actually understood at the time* and what needed correcting.
 - No automated test suite by design — verification is manual: `curl` /
   browser dev tools for the backend, iOS Simulator + console logs for the
   client.
