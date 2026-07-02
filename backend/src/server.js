@@ -2,6 +2,7 @@ const express = require("express");
 
 const app = express();
 const PORT = 3000;
+let connections = [];
 
 app.use(express.static("public"));
 
@@ -12,27 +13,25 @@ app.get("/stream", (req, res) => {
     Connection: "keep-alive",
   };
   res.writeHead(200, sseHeaders);
-
-  const sendEvent = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
-
-  // Simulate sending events every second
-  const intervalId = setInterval(() => {
-    const eventData = {
-      lat: 37.7749 + Math.random() * 0.01, // Random latitude near San Francisco
-      lng: -122.4194 + Math.random() * 0.01, // Random longitude near San Francisco
-      timestamp: new Date(),
-    };
-    sendEvent(eventData);
-  }, 1000);
+  connections.push(res);
 
   // Clean up when the client disconnects
   req.on("close", () => {
-    clearInterval(intervalId);
-    console.log("Client disconnected");
+    connections = connections.filter((conn) => conn !== res);
     res.end();
   });
+});
+
+app.post("/location", express.json(), (req, res) => {
+  const { lat, lng } = req.body;
+  const locationData = { lat, lng };
+
+  // Broadcast the location data to all connected clients
+  connections.forEach((conn) => {
+    conn.write(`data: ${JSON.stringify(locationData)}\n\n`);
+  });
+
+  res.status(200).send("Location data sent to clients.");
 });
 
 app.listen(PORT, () => {

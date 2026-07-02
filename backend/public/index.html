@@ -1,11 +1,41 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Map Emulator — Control UI</title>
-</head>
-<body>
-  <h1>Map Emulator control UI</h1>
-  <p>Placeholder — Leaflet map arrives in Phase 2.</p>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Map Emulator — Control UI</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  </head>
+  <body>
+    <h1>Map Emulator control UI</h1>
+    <div id="map" style="height: 100vh; width: 100vw"></div>
+
+    <script>
+      const map = L.map("map").setView([37.7749, -122.4194], 14); // San Francisco
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+
+      let marker;
+
+      map.on("click", (e) => {
+        const { lat, lng } = e.latlng;
+
+        if (marker) {
+          marker.setLatLng(e.latlng);
+        } else {
+          marker = L.marker(e.latlng).addTo(map);
+        }
+
+        fetch("/location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat, lng }),
+        });
+      });
+    </script>
+  </body>
 </html>
