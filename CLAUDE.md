@@ -40,6 +40,11 @@ This is a **teaching engagement, not a build-it-for-them task**.
 - **iOS client:** SwiftUI + Apple **MapKit** (not Google Maps — avoids
   Google Cloud billing account requirement; concepts transfer 1:1 if he
   wants to swap SDKs later as a stretch goal).
+- **Swift language mode:** Swift 6, strict concurrency enforced
+  (`SWIFT_VERSION = 6.0` in project.pbxproj). Expect data-race safety
+  checks as compiler errors, not warnings — this matters once we write the
+  async SSE stream reader in Phase 4 (`URLSession.bytes(for:)` consumption
+  will need proper actor isolation / `Sendable` conformance).
 - **SSE on iOS:** hand-rolled parser over `URLSession.bytes(for:)` — no
   third-party SSE library. The whole point is understanding the wire
   protocol.
@@ -62,7 +67,7 @@ restart.
 Keep this section updated as phases complete, so a fresh session with lost
 context can tell where things stand at a glance.
 
-- [ ] Phase 0 — Setup (folder structure, Express skeleton, Xcode scaffold)
+- [x] Phase 0 — Setup (folder structure, Express skeleton, Xcode scaffold)
 - [ ] Phase 1 — SSE fundamentals (hardcoded `/stream`, verified via `curl`)
 - [ ] Phase 2 — Naive end-to-end pipe (control UI → POST → direct SSE broadcast)
 - [ ] Phase 3 — Queue + rate-limited worker (conflation)
