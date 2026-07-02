@@ -20,6 +20,11 @@ in [docs/learning-log.md](docs/learning-log.md) — check it for what's
 already been covered and where the owner's understanding has needed
 correcting before.
 
+A phase-by-phase summary of the actual code changes (what was built, who
+wrote it, good practices demonstrated, bugs found and how they were fixed)
+is kept in [docs/progress-log.md](docs/progress-log.md) — update it after
+each phase completes, alongside the learning log.
+
 ## Who's doing what (read this before writing any code)
 
 This is a **teaching engagement, not a build-it-for-them task**.
@@ -40,6 +45,11 @@ This is a **teaching engagement, not a build-it-for-them task**.
   each quiz, before moving to the next phase — this is what lets a
   context-lost session see not just *what* was covered but *what the owner
   actually understood at the time* and what needed correcting.
+- Also update [docs/progress-log.md](docs/progress-log.md) once a phase's
+  code is done: a summary of what was built, who wrote it (owner vs.
+  Claude-scaffolded boilerplate), good practices worth naming, and any
+  bugs found + how they were fixed. This is the code-side counterpart to
+  the learning log's concept-side record.
 - No automated test suite by design — verification is manual: `curl` /
   browser dev tools for the backend, iOS Simulator + console logs for the
   client.
