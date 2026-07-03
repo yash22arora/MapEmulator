@@ -22,8 +22,10 @@ app.get("/stream", (req: Request, res: Response) => {
 
   // Clean up when the client disconnects
   req.on("close", () => {
-    connections = connections.filter((conn) => conn !== res);
-    res.end();
+    if (connections.indexOf(res) !== -1) {
+      connections.splice(connections.indexOf(res), 1);
+      res.end();
+    }
   });
 });
 
