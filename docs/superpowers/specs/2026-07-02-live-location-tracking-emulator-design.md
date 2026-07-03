@@ -95,9 +95,10 @@ safely discarded once a newer one arrives.
 | 2 | Naive end-to-end pipe | Leaflet control UI → `POST /location` → **directly** broadcast via SSE (no queue yet) | Wiring a full producer→consumer loop in its simplest form |
 | 3 | Queue + rate-limited worker | Refactor Phase 2: `POST` enqueues, a worker loop dequeues/conflates on an interval and broadcasts | Decoupling, backpressure, conflation |
 | 4 | iOS client, no interpolation | SwiftUI MapKit view, hand-rolled SSE client, marker snaps directly to each new coordinate | Consuming SSE on iOS; seeing the "jump" problem firsthand |
-| 5 | Client-side interpolation | Linear interpolation (lerp) between last and new position, animated over a fixed duration | Core interpolation math + animation loop (e.g. `CADisplayLink`/`Timer`) |
-| 6 | Realism upgrade | Animation duration adapts to the actual gap between updates (not fixed); bearing calculated and applied to rotate the marker PNG | Matching client animation timing to real update cadence; heading/bearing math |
-| 7 | Resilience | SSE reconnect/retry logic on the client; server handles client disconnects gracefully | Real-world connection handling for a long-lived stream |
+| 5 | Route rendering | Fixed drop/pickup coordinate; `MKDirections` computes a road-snapped route once from the rider's starting position, rendered as a static `MapPolyline` overlay | Apple's native routing API (`MKDirections`/`MKRoute`); one-shot async request vs. a live stream |
+| 6 | Client-side interpolation | Linear interpolation (lerp) between last and new position, animated over a fixed duration | Core interpolation math + animation loop (e.g. `CADisplayLink`/`Timer`) |
+| 7 | Realism upgrade | Animation duration adapts to the actual gap between updates (not fixed); bearing calculated and applied to rotate the marker PNG | Matching client animation timing to real update cadence; heading/bearing math |
+| 8 | Resilience | SSE reconnect/retry logic on the client; server handles client disconnects gracefully | Real-world connection handling for a long-lived stream |
 
 **Stretch goals (post-core, optional):** swap in Google Maps iOS SDK,
 support multiple simulated riders, add an "auto-drive a route" mode to the
@@ -137,3 +138,16 @@ design discussion.
   plain JS/HTML — it's browser-loaded via `<script>` tag with no bundler,
   so TS there would need a separate build step for no real benefit at this
   project's scale.
+- **2026-07-03, after Phase 4:** Clarified a motive that was implicit but
+  undocumented — the rider marker is meant to move toward a **fixed
+  drop/pickup point**, with the route from rider to that point highlighted
+  on the map (closer to actual ride-hailing UX, not just a marker floating
+  with no destination context). Confirmed MapKit supports this natively
+  (`MKDirections`/`MKRoute` for a real road-snapped route, no new
+  dependency, no billing account — same free/no-key story as MapKit
+  itself), so the earlier Google Maps vs. MapKit decision stands unchanged.
+  Inserted as a new Phase 5 (route rendering), renumbering the former
+  Phases 5-7 to 6-8. The route is computed **once** per rider starting
+  position and rendered as a static overlay — it does not recompute as the
+  rider moves, and the rider marker does not snap to it (road-snapping the
+  live marker itself is out of scope, a possible future stretch goal).

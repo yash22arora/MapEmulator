@@ -96,10 +96,12 @@ context can tell where things stand at a glance.
 - [x] Phase 1 — SSE fundamentals (hardcoded `/stream`, verified via `curl`)
 - [x] Phase 2 — Naive end-to-end pipe (control UI → POST → direct SSE broadcast)
 - [x] Phase 3 — Queue + rate-limited worker (conflation)
-- [ ] Phase 4 — iOS client, no interpolation (see the "jump" problem)
-- [ ] Phase 5 — Client-side interpolation (lerp, fixed duration)
-- [ ] Phase 6 — Realism upgrade (adaptive duration + bearing rotation)
-- [ ] Phase 7 — Resilience (SSE reconnect/retry)
+- [x] Phase 4 — iOS client, no interpolation (see the "jump" problem)
+- [ ] Phase 5 — Route rendering (fixed drop point, `MKDirections` road-snapped
+      polyline) — inserted 2026-07-03, see Amendments in the design spec
+- [ ] Phase 6 — Client-side interpolation (lerp, fixed duration)
+- [ ] Phase 7 — Realism upgrade (adaptive duration + bearing rotation)
+- [ ] Phase 8 — Resilience (SSE reconnect/retry)
 
 Stretch goals (not started until core phases are done): Google Maps SDK
 swap-in, multiple riders, auto-drive-a-route mode, replay buffer on
