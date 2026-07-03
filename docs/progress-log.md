@@ -198,3 +198,59 @@ context. Confirmed MapKit's `MKDirections`/`MKRoute` covers this natively
 (free, no billing account, same as MapKit itself), so no library switch
 needed. Inserted as a new Phase 5 (route rendering); former Phases 5-7
 renumbered to 6-8. See Amendments in the design spec.
+
+---
+
+## Phase 5 — Route rendering (MKDirections)
+
+**Owner-written:** `LiveViewViewModel.requestMapRoute()` (`MKDirections.Request`
+→ `MKDirections(request:).calculate()` → `route.polyline`), `HomeView.swift`
+(new landing screen with `NavigationPath`-based navigation into `LiveView`),
+map styling (`pointsOfInterest: .excludingAll`) and a "Home" `Annotation`.
+`riderLocation` changed from `LocationUpdate?` to `CLLocation?` (a real
+CoreLocation type instead of the raw network model, more natural fit for
+feeding directly into `MKMapItem`).
+
+**Design decision, explicitly confirmed rather than assumed:** the route
+recomputes on **every** rider location update (via `.onChange`), not once
+per starting position as originally speced — owner confirmed this is
+intentional, matching real ride-hailing apps (Uber recomputes the
+remaining route as the driver moves). Design spec's "computed once, static
+overlay" framing is now stale for this specific behavior; noting here
+rather than re-editing the spec since the *reason* for the original
+design (avoid needless MKDirections calls) was explicitly traded off on
+purpose.
+
+**Bugs found and fixed:**
+1. *Cascading compiler error* — `if let location = viewModel.riderLocation`
+   inside the `Map { }` content builder, after `riderLocation`'s type had
+   changed to non-optional `CLLocation` at one point during iteration.
+   `if let` on a non-optional is itself invalid, and the failure inside
+   the builder closure surfaced as a confusing top-level "no exact matches
+   in call to initializer" against `Map` itself, several layers up from
+   the actual problem. Root-caused via `xcodebuild`, not guessed.
+2. *Race condition on concurrent route requests* — every `.onChange` fired
+   an untracked `Task`, so a slow request for an older rider position
+   could complete *after* a newer one and silently overwrite it with stale
+   data. Fixed in two layers, both owner-implemented after being walked
+   through the gap: (a) store the `Task` handle and `.cancel()` the
+   previous one before starting a new one; (b) add `guard
+   !Task.isCancelled else { return }` immediately after `calculate()`
+   returns — belt-and-suspenders, since `.cancel()` alone doesn't
+   guarantee `MKDirections.calculate()` actually honors Swift's
+   cooperative cancellation internally, but the post-await guard
+   guarantees correctness regardless.
+3. *Duplicate source of truth* — the drop-point coordinate is hand-typed
+   twice, independently, as both `CLLocationCoordinate2D.home` (View) and
+   `CLLocation.home` (ViewModel). Flagged, not yet fixed — deliberately
+   left as owner's call since it's a consistency risk, not a bug today.
+
+**Good instinct:** asked *whether `Task.checkCancellation()` was also
+needed* after already having correctly placed `Task.isCancelled` — shows
+active verification of a completed fix rather than assuming "the review
+comment is now satisfied," and led to a useful distinction (throwing vs.
+non-throwing cancellation check, and which fits a non-`throws` function).
+
+**Verified:** control UI click reflected in both the moving marker and an
+updating route line; confirmed working via real `xcodebuild` builds after
+each round of fixes, not just visual inspection.

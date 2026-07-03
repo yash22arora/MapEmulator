@@ -233,3 +233,53 @@ same file never caused a problem?
   mutated in place — reassignment always creates a new object that only
   the reassigning code's own variable now points to, silently orphaning
   every other reference to the old one.
+
+---
+
+## Phase 5 — Route rendering (MKDirections)
+
+Also covered informally during implementation: whether `Task.checkCancellation()`
+was needed alongside the `Task.isCancelled` guard already added after
+`requestMapRoute()`'s `await` (answer: no — `checkCancellation()` is the
+throwing variant, useful inside an already-`throws` context; the plain
+boolean check is the better fit for a non-throwing function that wants to
+silently bail out rather than propagate a `CancellationError`). See
+progress-log.md for the full implementation account (route recompute
+decided intentional per-update, matching real ride-hailing apps; the
+`routeTask` cancellation fix; the duplicate `.home` coordinate flagged).
+
+**Q:** `MKDirections.calculate()` and `startStreaming()` are both `async`,
+but one is a plain `async throws -> Response` call and the other returns
+an `AsyncThrowingStream`. Why doesn't route-fetching need the stream
+treatment the way the SSE connection did? What's the actual property of
+the underlying operation that decides which shape is correct?
+
+**Raw answer:**
+> Route is a discrete piece of information which is derived from the
+> rider location and the fixed home location. Everytime we get a new
+> rider location, we can discretely calculate the route. Since its a
+> network call therefore its async, but its like a plain GET request that
+> delivers us the full information all at once.
+>
+> Whereas, the rider's coordinates are ever changing, hence we need a long
+> held connection with the server. We dont know when the new update will
+> be recieved. Thats something the server is sending to us, we are in a
+> black box. The route however, is requested by us.
+>
+> And since we have attached the calculation of route with change in
+> rider's corrdinates, we still have the right / fresh info all the time.
+
+**Assessment / corrections:**
+- Correct, and genuine transfer of the Phase 4 concept to a new situation
+  rather than pattern-matching — the push/pull framing ("we are in a black
+  box" for the server-driven stream vs. "the route is requested by us")
+  is exactly the right mental model.
+- One layer made explicit: the deciding factor isn't "does this happen
+  more than once" (route fetching *is* called repeatedly, once per rider
+  update) — it's **who initiates each exchange and whether it has a
+  natural endpoint**. Each `calculate()` call is a complete,
+  caller-initiated request→response cycle that finishes; N calls are N
+  independent one-shot operations, not one continuous multi-valued
+  operation. The rule: finite, caller-initiated, one-answer-per-call →
+  plain `async`. Indefinite, producer-driven, many-answers-per-call → a
+  stream.
