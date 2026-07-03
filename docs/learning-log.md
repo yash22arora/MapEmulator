@@ -177,3 +177,59 @@ applying?
   why runtime boundary validation (parsing `unknown` into a checked type,
   e.g. with `zod`) is a distinct discipline from "having TypeScript types"
   — only one of them touches actual runtime data.
+
+---
+
+## Phase 4 — iOS client, no interpolation
+
+This phase involved substantial real debugging beyond the formal quiz:
+`AsyncThrowingStream` design (fixing a `startStreaming()` signature that
+returned a single value instead of a continuous stream), a blank-line SSE
+parsing bug that silently killed the stream after one event, a `URL`
+typo (`/streaming` vs `/stream`), and a backend bug where `connections =
+connections.filter(...)` reassignment orphaned the broadcast worker's
+reference to the connections array after the first client disconnect
+(fixed with `splice` to mutate in place). See
+[progress-log.md](progress-log.md) for the full code-level account.
+
+**Q1:** Why did `startStreaming()` need to become a function returning
+`AsyncThrowingStream<LocationUpdate, Error>`, rather than something
+simpler like `async throws -> [LocationUpdate]`? What's fundamentally
+different about the two shapes?
+
+**Raw answer:**
+> Our goal was to open a long-lived connection where data can come in at
+> non-fixed intervals and we processes it chunk by chunk as it arrives.
+> SOmething like async throws -> [LocationUpdate] will just give us a
+> piece of infomation once and no further updates are received.
+> AsyncThrowingStream lets us use `for try await`, where we are
+> persistently listening for async arrival of info pieces, and as a new
+> piece arrives, we processes it.
+
+**Assessment / corrections:**
+- Correct. Sharper edge worth naming: it's not just less convenient — an
+  `async throws -> [LocationUpdate]` signature would **never return at
+  all** for a `/stream` connection with no natural end, since returning an
+  array requires waiting for the sequence to finish first.
+  `AsyncThrowingStream` has no such requirement; it hands over each value
+  the instant it exists.
+
+**Q2:** Why does `connections = connections.filter(...)` break the
+broadcast worker specifically, when `connections.push(res)` earlier in the
+same file never caused a problem?
+
+**Raw answer:**
+> splice mutates the array in place, while filter created a copy of the
+> original array object and returned a new reference. Now, after filter,
+> the connections are maintained at a new memory space while our worker
+> is still looking for changes at the original memory space (original
+> array). Hence, the changes never reach the worker. array.push() is a
+> mutating function so that worked in the first hand.
+
+**Assessment / corrections:**
+- Correct and precisely stated. General principle worth carrying forward:
+  whenever other code has captured a reference to a container (array,
+  object) and needs to observe later changes, that container must be
+  mutated in place — reassignment always creates a new object that only
+  the reassigning code's own variable now points to, silently orphaning
+  every other reference to the old one.

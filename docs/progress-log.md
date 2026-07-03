@@ -120,3 +120,81 @@ runtime boundary validation. Worth watching whether this pattern
 (trusting an asserted type over verifying the actual runtime shape)
 recurs once the iOS/Swift side starts parsing untyped SSE payloads in
 Phase 4.
+
+---
+
+## Phase 4 — iOS client, no interpolation
+
+**Owner-written, good structure from the start:** clean MVVM-ish layout —
+`Models/LocationUpdate.swift`, `DataManagers/LiveViewDataManager.swift`
+(protocol + implementation, `LiveViewDataManaging`), `ViewModels/
+LiveViewViewModel.swift` (`@Observable`), `Views/LiveView.swift`. Good
+instinct to protocol-ize the data manager for testability/DI even though
+nothing's actually testing it yet.
+
+**Design flaw caught before it shipped:** first draft of
+`LiveViewDataManaging.startStreaming()` returned `async throws ->
+LocationUpdate` — a single value — which can't represent a live,
+indefinite stream of updates. Claude explained `AsyncThrowingStream`
+(continuation-based bridge from a push-style producer to something
+consumers can `for try await` over); owner correctly reasoned through
+*why* it's necessary on request (see learning log) rather than just
+pattern-matching the fix.
+
+**Bugs found and fixed, roughly in the order hit:**
+1. *Compile error* — `for try await update in dataManager.startStreaming()`
+   where `startStreaming()` was itself `async throws`, needing its own
+   `try await` separate from the loop's. Resolved by removing `async
+   throws` from the signature entirely (the function doesn't actually do
+   anything async/throwing before returning the stream — all real work
+   happens inside the stream's own `Task`), which was the more correct fix
+   than just adding a second `try await` at the call site.
+2. *Wrong endpoint* — `/streaming` instead of `/stream`, a typo that would
+   have silently 404'd and ended the stream immediately via the status
+   code guard.
+3. *SSE parsing bug, most significant one this phase* — the loop attempted
+   to `JSONDecoder().decode(...)` on **every** line from `bytes.lines`,
+   including the blank line that terminates each SSE event (our server
+   sends `data: {...}\n\n`, and `.lines` splits that into two lines: the
+   data line and an empty one). Decoding empty `Data` throws, uncaught,
+   which terminated the entire `AsyncThrowingStream` after exactly one
+   successful update — a bug that would look like "it worked once then
+   silently died," not an obvious crash. Went through two intermediate
+   attempts before landing on the right fix:
+   - First attempt: `line.replacingOccurrences(of: "data: ", with: "")` —
+     works by coincidence for numeric JSON payloads, but is a global
+     find-replace, not a prefix strip (wrong tool, latent corruption risk
+     if a payload ever contained that substring).
+   - Second attempt: `if let payload = line.trimmingPrefix("data: ")` —
+     `trimmingPrefix` returns a non-optional `Substring` (unchanged
+     string if no match, never `nil`), so this doesn't compile, and even
+     if it did, wouldn't have distinguished "had the prefix" from "didn't."
+   - Final, correct fix: `if line.hasPrefix("data: ")` as the gate,
+     `line.trimmingPrefix("data: ")` only inside it to do the actual
+     stripping — separating the boolean check from the transformation.
+4. *Backend bug surfaced by iOS testing, not iOS-side at all* —
+   `connections = connections.filter(...)` on client disconnect reassigns
+   the module-level array to a new object; the broadcast worker had
+   captured a reference to the original array at startup and never saw
+   the reassignment, so broadcasts silently stopped reaching any client
+   that connected after the *first* disconnect ever occurred. Classic
+   mutate-vs-reassign reference bug. Fixed with `connections.splice(
+   connections.indexOf(res), 1)` (in-place mutation, same object
+   reference preserved). One residual edge case flagged, not yet
+   hardened: `indexOf` returning `-1` would make `splice(-1, 1)` delete
+   the *last* element instead of no-op'ing — low probability (`close`
+   shouldn't fire twice for one response) but not impossible.
+
+**Verified:** clicking the control UI map is reflected in the iOS
+Simulator/Preview, and — the actual point of this phase — the marker
+**snaps/teleports** rather than gliding, confirmed directly by the owner.
+Phase 5 (originally interpolation, renumbered to Phase 6 — see below)
+exists to fix exactly that.
+
+**Scope change, end of this phase:** owner clarified the emulator's real
+goal includes a rider moving toward a **fixed drop point**, with the
+route highlighted — not just a marker floating with no destination
+context. Confirmed MapKit's `MKDirections`/`MKRoute` covers this natively
+(free, no billing account, same as MapKit itself), so no library switch
+needed. Inserted as a new Phase 5 (route rendering); former Phases 5-7
+renumbered to 6-8. See Amendments in the design spec.
