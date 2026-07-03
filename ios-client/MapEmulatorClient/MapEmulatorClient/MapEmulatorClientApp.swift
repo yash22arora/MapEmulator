@@ -12,7 +12,7 @@ import SwiftData
 struct MapEmulatorClientApp: App {
     var body: some Scene {
         WindowGroup {
-            LiveView()
+            HomeView()
         }
     }
 }
