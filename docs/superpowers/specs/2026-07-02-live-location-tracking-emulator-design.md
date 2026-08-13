@@ -4,16 +4,22 @@
 
 A learning project to understand how apps like Uber, Rapido, and Swiggy show
 smooth, live-updating rider/cab positions on a map client, despite receiving
-discrete, potentially irregular location updates from the server. The two
-core techniques being learned:
+discrete, potentially irregular location updates from the server. The core
+techniques being learned:
 
 1. **Server-Sent Events (SSE)** for pushing location updates from backend to client.
 2. **Client-side interpolation** so the on-screen marker glides between
    positions instead of jumping/snapping.
+3. **Multi-tenant producer/consumer pub/sub** — multiple riders publishing to
+   named topics, multiple customers subscribing to the topic they care
+   about, backed by independent per-topic queues on the server.
+4. **Client-side offline queueing** — buffering events locally on a flaky
+   producer and flushing the backlog once connectivity returns.
 
 A secondary goal is understanding where and why **queues** show up in this
 kind of pipeline (producer/consumer decoupling, backpressure, conflation of
-stale updates).
+stale updates — both server-side per-topic conflation and client-side
+offline buffering).
 
 This is explicitly a **learning exercise**, not a production build. The
 owner (an iOS developer with some web/backend experience) will write the
@@ -24,13 +30,22 @@ quiz the owner after each phase to confirm understanding before proceeding.
 ## Non-goals
 
 - No real authentication, database, or persistence — everything is in-memory
-  and resets on server restart.
-- No multiple concurrent riders/clients in the core build (may be a stretch
-  goal).
+  and resets on server restart. Topic names are a routing key, not an auth
+  boundary — anyone who knows/guesses a topic name can publish or subscribe
+  to it.
 - No automated test suite — verification is manual (`curl`, browser dev
   tools, iOS Simulator + console logs) at each phase checkpoint.
 - Not optimized for production correctness/scale — optimized for surfacing
   the underlying concepts clearly.
+- Rider's offline/low-network local queue is in-memory only, not persisted
+  to disk — an app kill while "offline" loses the buffer.
+- Topics are created lazily on first use (producer or consumer, whichever
+  hits first) and never torn down — matches the project's existing
+  reset-on-restart, no-persistence stance.
+
+**Retracted as of 2026-08-14:** "no multiple concurrent riders/clients" is no
+longer a non-goal — multi-tenant pub/sub across topics is now a core goal
+(see Amendments).
 
 ## Architecture
 
@@ -38,53 +53,77 @@ quiz the owner after each phase to confirm understanding before proceeding.
 Map Emulator/
 ├── backend/              Node.js + Express + TypeScript
 │   ├── public/            Leaflet + OpenStreetMap control UI (static HTML/JS)
-│   └── src/                Express app: ingestion endpoint, in-memory queue,
-│                            worker loop, SSE broadcast endpoint
-└── ios-client/            SwiftUI + MapKit Xcode project
+│   │                        — kept as a secondary/admin producer, now topic-aware
+│   └── src/                Express app: topic-scoped ingestion endpoint,
+│                            per-topic in-memory queues, per-topic worker
+│                            loops, per-topic SSE broadcast endpoint
+└── ios-client/            SwiftUI Xcode project, single app target
+    ├── HomeView            Topic name field + "Enter as Rider"/"Enter as
+    │                        Customer" navigation
+    ├── RiderView           MapKit — tap-to-select point, low-network mode
+    │                        toggle + local offline queue
+    └── CustomerView        Google Maps SDK (GMSMapView) — SSE subscriber,
+                             interpolation, MKDirections-computed route
+                             rendered as a GMSPolyline
 ```
 
 **Runtime topology:** Backend runs locally on the developer's Mac
 (`localhost:<port>`). The iOS client runs in the iOS Simulator, which shares
 the Mac's network stack, so it talks to the backend directly at
-`http://localhost:<port>` — no LAN/IP configuration needed.
+`http://localhost:<port>` — no LAN/IP configuration needed. Google Maps SDK
+requires a real device network path to Google's tile/API servers (unlike
+MapKit, this isn't bundled offline), and a Maps SDK for iOS API key supplied
+by the owner.
 
 ## Data flow
 
+Per topic, independently, N topics running concurrently:
+
 ```
-Control UI (browser, Leaflet map)
-   │  click on map
+Rider (iOS, MapKit) — tap to select point
+   │
+   ▼  (online) POST /location  { topic, lat, lng, ts }
+   │  (offline/low-network mode) buffered into a local in-memory array
+   │  instead; on toggling back online, the whole backlog is replayed as a
+   │  rapid burst of individual POSTs against the same endpoint
    ▼
-POST /location  { lat, lng, ts }
+Backend: topic looked up/created in a Map<topic, TopicChannel> —
+each TopicChannel owns its own queue, worker, and connections list
    │
    ▼
-enqueue(update)                    [in-memory queue]
+enqueue(update) into that topic's queue
    │
    ▼
-Worker loop (fires every ~500ms)
+That topic's worker loop (fires every ~500ms)
    │  dequeues; if multiple updates queued, keeps only the latest
-   │  (conflation — stale intermediate positions are discarded)
+   │  (server-side conflation — same mechanism as before, now scoped per topic)
    ▼
-Broadcast via SSE to all connected clients
+Broadcast via SSE to clients subscribed to that topic only
    │
    ▼
-iOS client: SSE stream reader (hand-rolled parser over
-URLSession.bytes(for:)) → parses `data:` lines → new coordinate
+Customer (iOS, Google Maps): GET /stream?topic=X, hand-rolled SSE parser
+over URLSession.bytes(for:) → parses `data:` lines → new coordinate
    │
    ▼
-Client-side interpolation: animate marker from last known position
+Client-side interpolation: animate GMSMarker from last known position
 to new position, rather than snapping
    │
    ▼
-MapKit annotation (cab/bike PNG) renders smooth movement,
-eventually rotated to face direction of travel
+GMSMarker (cab/bike icon) renders smooth movement, rotated to face
+direction of travel; route to the fixed drop point computed via
+MKDirections and drawn as a GMSPolyline overlay
 ```
 
-The queue exists specifically to demonstrate two real-world concerns:
+The per-topic queue/worker exists to demonstrate three real-world concerns:
 producer/consumer rate mismatch (rapid clicks vs. a rate-limited dispatch
-loop) and **conflation** — the same pattern used in systems like Kafka
-compacted topics or RxJS `sample()`, where only the latest state matters for
-a given key (here, "current rider position") and older queued updates are
-safely discarded once a newer one arrives.
+loop), **server-side conflation** (same pattern as Kafka compacted topics or
+RxJS `sample()` — only the latest state matters per topic, older queued
+updates are safely discarded), and **multi-tenant isolation** (each topic's
+queue/worker/connections are independent, so one busy topic can't starve
+another's dispatch timing). The Rider's local offline buffer demonstrates a
+distinct, complementary concept — **client-side offline queueing** — where
+the producer itself, not the backend, is the one absorbing a period of
+unreliability.
 
 ## Phase breakdown
 
@@ -96,15 +135,20 @@ safely discarded once a newer one arrives.
 | 3 | Queue + rate-limited worker | Refactor Phase 2: `POST` enqueues, a worker loop dequeues/conflates on an interval and broadcasts | Decoupling, backpressure, conflation |
 | 4 | iOS client, no interpolation | SwiftUI MapKit view, hand-rolled SSE client, marker snaps directly to each new coordinate | Consuming SSE on iOS; seeing the "jump" problem firsthand |
 | 5 | Route rendering | Fixed drop/pickup coordinate; `MKDirections` computes a road-snapped route once from the rider's starting position, rendered as a static `MapPolyline` overlay | Apple's native routing API (`MKDirections`/`MKRoute`); one-shot async request vs. a live stream |
-| 6 | Client-side interpolation | Linear interpolation (lerp) between last and new position, animated over a fixed duration | Core interpolation math + animation loop (e.g. `CADisplayLink`/`Timer`) |
-| 7 | Realism upgrade | Animation duration adapts to the actual gap between updates (not fixed); bearing calculated and applied to rotate the marker PNG | Matching client animation timing to real update cadence; heading/bearing math |
-| 8 | Resilience | SSE reconnect/retry logic on the client; server handles client disconnects gracefully | Real-world connection handling for a long-lived stream |
+| 6 | App restructure | `HomeView` (topic field + Rider/Customer nav buttons), scaffolded `RiderView`/`CustomerView`, `NavigationStack` wiring, shared topic state passed down two divergent flows | Single-app multi-role navigation |
+| 7 | Backend multi-tenancy | `Map<topic, TopicChannel>`, each with its own queue/worker/connections, lazily created on first use; `POST /location` and `GET /stream` become topic-scoped; Leaflet control UI gets a topic field | Pub/sub partitioning — independent producer/consumer pipelines sharing one process |
+| 8 | Rider client | MapKit tap-to-select point, `POST /location` with topic, wired against Phase 7's backend | Producing into a named topic |
+| 9 | Customer client + Google Maps | `GMSMapView` integration (API key setup, `GMSMapView`/`GMSMarker`), SSE subscribe by topic, marker **snaps** (no lerp yet — deliberately re-surfaces the "jump" problem on the new SDK), `MKDirections`-computed route rendered as a `GMSPolyline` | New map SDK's core APIs; separating "compute a route" from "render a route" |
+| 10 | Client-side interpolation | Linear interpolation (lerp) between last and new position on the `GMSMarker`, animated over a fixed duration | Core interpolation math + animation loop, now against Google Maps' marker API |
+| 11 | Realism upgrade | Animation duration adapts to the actual gap between updates (not fixed); bearing calculated and applied to rotate the marker icon | Matching client animation timing to real update cadence; heading/bearing math |
+| 12 | Rider offline queueing | "Low-Network Mode" toggle on `RiderView`; while on, taps buffer into a local in-memory array instead of hitting the network; toggling off replays the full backlog as a rapid burst of individual `POST /location` calls | Client-side offline queueing, distinct from and complementary to server-side conflation (Phase 7) |
+| 13 | Resilience | SSE reconnect/retry logic on the Customer client; backend handles per-topic client disconnects gracefully | Real-world connection handling for a long-lived stream, now in a multi-tenant context |
 
-**Stretch goals (post-core, optional):** swap in Google Maps iOS SDK,
-support multiple simulated riders, add an "auto-drive a route" mode to the
-control UI to stress-test interpolation with frequent regular updates,
-replay buffer so a reconnecting client (Phase 7) can catch up via the queue
-instead of only seeing the live edge.
+**Stretch goals (post-core, optional):** add an "auto-drive a route" mode to
+the Rider UI to stress-test interpolation with frequent regular updates,
+replay buffer so a reconnecting Customer (Phase 13) can catch up via the
+queue instead of only seeing the live edge, topic list/discovery UI instead
+of free-text entry.
 
 ## Working process per phase
 
@@ -121,11 +165,12 @@ instead of only seeing the live edge.
 
 ## Open questions / deferred decisions
 
-None outstanding — Google Maps vs. MapKit (MapKit, no billing setup),
-backend stack (Node/Express), control UI map (Leaflet/OSM), networking
-(Simulator + localhost), interpolation depth (basic first, realism as
-Phase 6), and resilience scope (Phase 7, included) were all resolved during
-design discussion.
+None outstanding. Original round: Google Maps vs. MapKit, backend stack,
+control UI map, networking, interpolation depth, resilience scope — all
+resolved during initial design discussion (see Phase numbers in the table
+above, current as of the 2026-08-14 renumbering). 2026-08-14 round: control
+UI's fate, which client(s) get Google Maps, swap-vs-lerp ordering, reconnect
+flush strategy, and topic architecture — all resolved, see Amendments below.
 
 ## Amendments
 
@@ -150,4 +195,50 @@ design discussion.
   Phases 5-7 to 6-8. The route is computed **once** per rider starting
   position and rendered as a static overlay — it does not recompute as the
   rider moves, and the rider marker does not snap to it (road-snapping the
-  live marker itself is out of scope, a possible future stretch goal).
+  live marker itself is out of scope, a possible future stretch goal). **This
+  framing is stale as of the actual Phase 5 build:** the owner confirmed
+  during implementation that the route should recompute on every rider
+  update instead (matching real ride-hailing apps), a deliberate trade-off
+  documented in `docs/progress-log.md`'s Phase 5 entry rather than re-edited
+  here. That recompute-per-update behavior carries forward into Phase 9's
+  Google Maps port.
+
+- **2026-08-14, before Phase 6:** Major scope expansion, owner-initiated.
+  Original single-client design retargeted into two roles — **Rider** and
+  **Customer** — sharing one iOS app, with a home-screen topic name field
+  routing into either flow. The backend gains **topic-based multi-tenancy**
+  (independent per-topic queue/worker/connections, matching real
+  publish-subscribe systems) so multiple riders and customers can operate
+  concurrently on different topics. The Customer client swaps its map
+  renderer to the **Google Maps SDK for iOS** (owner-supplied API key);
+  the Rider client keeps MapKit. Former Phases 6-8 (interpolation, realism,
+  resilience) are renumbered to 10-11 and 13, with new Phases 6-9 and 12
+  inserted for the restructure, backend multi-tenancy, Rider client, and
+  Customer+Google-Maps client respectively, plus a new Phase 12 for
+  Rider-side offline/low-network local queueing. Key decisions made during
+  design discussion, each deliberately chosen over a real alternative:
+  - The Leaflet browser control UI is **kept**, not retired, as a
+    secondary/admin producer — now also topic-aware — rather than folding
+    all point-selection exclusively into the Rider iOS client.
+  - Only the **Customer** client switches to Google Maps; **Rider** stays on
+    MapKit, both to avoid redoing already-working Phase 0-5 code and to
+    contrast the two SDKs side by side.
+  - The Google Maps swap happens **before** interpolation/realism (Phase 9,
+    ahead of Phases 10-11) rather than after, so the lerp/bearing animation
+    logic is written once directly against `GMSMarker` instead of being
+    built on MapKit and re-ported.
+  - Route computation for the Customer client **stays on `MKDirections`**
+    (a CoreLocation service, independent of which SDK renders the result)
+    with the output drawn as a `GMSPolyline`, rather than switching to
+    Google's own Directions API — avoids a second new REST integration and
+    Google Cloud billing surface in the same phase as the SDK swap.
+  - Topic architecture is **per-topic queue + worker + connections**
+    (true tenant isolation, closer to Kafka partitions) rather than one
+    shared queue/worker routing by a topic tag on each item — chosen so one
+    busy topic's dispatch timing can't affect another's, and so "multiple
+    riders simultaneously" is genuinely independent, matching the owner's
+    stated goal of learning multi-tenant producer/consumer patterns.
+  - Rider's low-network-mode reconnect **flushes the entire local backlog**
+    as a burst of individual `POST /location` calls (re-exercising the
+    Phase 3 backend conflation path under load) rather than having the
+    client itself conflate down to a single latest point before sending.

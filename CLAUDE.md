@@ -5,10 +5,16 @@
 A learning project for understanding how apps like Uber/Rapido/Swiggy show
 smooth live rider/cab movement on a map: **Server-Sent Events (SSE)** from
 backend to client, plus **client-side interpolation** so the marker glides
-instead of jumping. A Node backend also has a small in-memory **queue**
-(with conflation) between ingestion and broadcast, to demonstrate
-producer/consumer decoupling and backpressure — the kind of pattern real
-location-tracking backends use.
+instead of jumping. A Node backend also has small in-memory **queues**
+(with conflation), one per pub/sub **topic**, between ingestion and
+broadcast, to demonstrate producer/consumer decoupling, backpressure, and
+multi-tenant isolation — the kind of pattern real location-tracking
+backends use. A single iOS app hosts two roles — **Rider** (produces
+location updates, MapKit) and **Customer** (consumes them, Google Maps SDK)
+— selected from a home screen alongside a topic name, so multiple
+riders/customers can operate concurrently on independent topics. The Rider
+side also simulates offline/low-connectivity conditions with a local queue
+that flushes on reconnect.
 
 Full design/rationale lives in
 [docs/superpowers/specs/2026-07-02-live-location-tracking-emulator-design.md](docs/superpowers/specs/2026-07-02-live-location-tracking-emulator-design.md).
@@ -61,10 +67,16 @@ This is a **teaching engagement, not a build-it-for-them task**.
   only. Dev: `npm run dev` (`tsx watch`). Build: `npm run build` (`tsc` →
   `dist/`) then `npm start`.
 - **Control UI:** static HTML/JS served by Express, Leaflet + OpenStreetMap
-  tiles (no API key, no billing account).
-- **iOS client:** SwiftUI + Apple **MapKit** (not Google Maps — avoids
-  Google Cloud billing account requirement; concepts transfer 1:1 if he
-  wants to swap SDKs later as a stretch goal).
+  tiles (no API key, no billing account). Kept alongside the Rider iOS
+  client as a secondary/admin producer (2026-08-14 decision) — now
+  topic-aware too.
+- **iOS client:** single SwiftUI app, two roles. **Rider** uses Apple
+  **MapKit** (unchanged from Phases 0-5). **Customer** uses the **Google
+  Maps SDK for iOS** (owner-supplied API key) — switched 2026-08-14, see
+  Amendments in the design spec for why only Customer swaps and Rider
+  doesn't. Route computation for Customer stays on `MKDirections`
+  (CoreLocation service, SDK-independent) with the result drawn as a
+  `GMSPolyline`.
 - **Swift language mode:** Swift 6, strict concurrency enforced
   (`SWIFT_VERSION = 6.0` in project.pbxproj). Expect data-race safety
   checks as compiler errors, not warnings — this matters once we write the
@@ -79,18 +91,23 @@ This is a **teaching engagement, not a build-it-for-them task**.
 ## Architecture at a glance
 
 ```
-Leaflet control UI --POST /location--> enqueue --> worker loop (~500ms,
-conflates to latest) --> SSE broadcast --> iOS hand-rolled SSE client -->
-client-side interpolation --> MapKit annotation (cab/bike PNG)
+Rider (iOS, MapKit) --POST /location {topic,...}--> per-topic enqueue -->
+per-topic worker loop (~500ms, conflates to latest) --> per-topic SSE
+broadcast --> Customer (iOS, Google Maps) hand-rolled SSE client -->
+client-side interpolation --> GMSMarker (cab/bike icon), MKDirections
+route drawn as GMSPolyline
 ```
 
-Single rider, single client, no auth, no DB — everything resets on server
-restart.
+Leaflet control UI remains a secondary/admin producer into the same
+topic-scoped `POST /location`. No auth (topic name is a routing key, not a
+credential), no DB — everything resets on server restart.
 
 ## Phase progress tracker
 
 Keep this section updated as phases complete, so a fresh session with lost
-context can tell where things stand at a glance.
+context can tell where things stand at a glance. Renumbered 2026-08-14 —
+see Amendments in the design spec for the full rationale behind the scope
+expansion and each new phase's ordering.
 
 - [x] Phase 0 — Setup (folder structure, Express skeleton, Xcode scaffold)
 - [x] Phase 1 — SSE fundamentals (hardcoded `/stream`, verified via `curl`)
@@ -102,10 +119,19 @@ context can tell where things stand at a glance.
       Note: route recomputes on every rider update (owner's deliberate
       choice, matching real ride-hailing apps), not once as originally
       speced.
-- [ ] Phase 6 — Client-side interpolation (lerp, fixed duration)
-- [ ] Phase 7 — Realism upgrade (adaptive duration + bearing rotation)
-- [ ] Phase 8 — Resilience (SSE reconnect/retry)
+- [ ] Phase 6 — App restructure (`HomeView` topic field + Rider/Customer nav,
+      scaffolded `RiderView`/`CustomerView`)
+- [ ] Phase 7 — Backend multi-tenancy (per-topic queue/worker/connections;
+      `POST /location` and `GET /stream` become topic-scoped)
+- [ ] Phase 8 — Rider client (MapKit tap-to-select point, posts to topic)
+- [ ] Phase 9 — Customer client + Google Maps SDK swap (marker snaps, no
+      lerp yet; `MKDirections` route rendered as `GMSPolyline`)
+- [ ] Phase 10 — Client-side interpolation (lerp, fixed duration, on `GMSMarker`)
+- [ ] Phase 11 — Realism upgrade (adaptive duration + bearing rotation)
+- [ ] Phase 12 — Rider offline queueing (low-network toggle, local buffer,
+      full-backlog burst-flush on reconnect)
+- [ ] Phase 13 — Resilience (Customer SSE reconnect/retry, backend
+      per-topic disconnect handling)
 
-Stretch goals (not started until core phases are done): Google Maps SDK
-swap-in, multiple riders, auto-drive-a-route mode, replay buffer on
-reconnect.
+Stretch goals (not started until core phases are done): auto-drive-a-route
+mode, replay buffer on reconnect, topic list/discovery UI.
