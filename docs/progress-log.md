@@ -254,3 +254,38 @@ non-throwing cancellation check, and which fits a non-`throws` function).
 **Verified:** control UI click reflected in both the moving marker and an
 updating route line; confirmed working via real `xcodebuild` builds after
 each round of fixes, not just visual inspection.
+
+---
+
+## Phase 6 — App restructure (Rider/Customer navigation)
+
+**Context:** first phase of the 2026-08-14 scope expansion (see Amendments
+in the design spec) — single-client app retargeted into Rider/Customer
+roles sharing one Xcode target, selected from a home screen alongside a
+shared `topic` string. This phase is navigation/state-passing scaffolding
+only; no real Rider/Customer behavior yet (that's Phases 8-9).
+
+**Owner-written:** `Destination` enum (`Hashable`, `.rider(topic:)` /
+`.customer(topic:)` cases) replacing `HomeView`'s old bare-`String`
+`NavigationPath`; `TextField`-bound `topic` state plus two buttons
+(non-empty guard before navigating); `navigationDestination(for:
+Destination.self)` switch dispatching to `RiderView(topic:)` or
+`CustomerView(topic:)`. `LiveView.swift` renamed to `CustomerView.swift`
+(kept its existing MapKit/route logic as-is, since that gets reworked in
+Phase 9 anyway) rather than left parked as originally suggested — the
+owner's call, and a reasonable one since the file didn't need to sit idle.
+New `RiderView.swift` scaffolded as a minimal MapKit view stub, no
+producer logic yet.
+
+**Review notes, both owner-fixed before the phase closed:**
+1. `RiderView.swift`'s file header comment still read "CustomerView.swift"
+   — copy-paste leftover from cloning the file, cosmetic only.
+2. First draft of `RiderView` rendered a "Rider" annotation off
+   `viewModel.riderLocation`, copied over from `CustomerView`/`LiveView` —
+   but `RiderView` never calls `startFetchingRiderLocation()`, so the
+   branch was dead code. Removed, replaced with a placeholder comment for
+   Phase 8.
+
+**Verified:** real Xcode build succeeded; `HomeView` → topic entry → both
+`RiderView` and `CustomerView` push correctly with the topic reflected in
+each nav title. Committed and pushed by the owner.

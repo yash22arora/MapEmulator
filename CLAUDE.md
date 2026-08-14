@@ -119,7 +119,7 @@ expansion and each new phase's ordering.
       Note: route recomputes on every rider update (owner's deliberate
       choice, matching real ride-hailing apps), not once as originally
       speced.
-- [ ] Phase 6 — App restructure (`HomeView` topic field + Rider/Customer nav,
+- [x] Phase 6 — App restructure (`HomeView` topic field + Rider/Customer nav,
       scaffolded `RiderView`/`CustomerView`)
 - [ ] Phase 7 — Backend multi-tenancy (per-topic queue/worker/connections;
       `POST /location` and `GET /stream` become topic-scoped)

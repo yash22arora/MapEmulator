@@ -283,3 +283,34 @@ the underlying operation that decides which shape is correct?
   operation. The rule: finite, caller-initiated, one-answer-per-call →
   plain `async`. Indefinite, producer-driven, many-answers-per-call → a
   stream.
+
+---
+
+## Phase 6 — App restructure (Rider/Customer navigation)
+
+**Q:** In the design we agreed on, `topic` is a pub/sub routing key —
+multiple riders and multiple customers can all key off the same topic
+string simultaneously, with no real auth or per-order semantics behind it.
+Does "orderID" as a label match that concept, or does it imply
+something narrower/different? If different, does that difference actually
+matter for how the backend (Phase 7) or the rest of the app should treat
+this value?
+
+**Raw answer:**
+> To keep things simple for now and also relate to real world, I am
+> interchangibly using topic with order ID. This is to show how there's a
+> publisher and a subscriber for a given active order - and they publish
+> on / consume from a topic. In reality, i feel an order ID can have
+> multiple topics - for location updates, status updates, payment updates
+> etc.
+
+**Assessment / corrections:**
+- Correct, and the elaboration is the sharp part: in a real system an
+  entity like an order typically fans out across a **family** of topics
+  rather than owning just one (e.g. `orders.{orderId}.location`,
+  `orders.{orderId}.status`, `orders.{orderId}.payment`), matching how
+  Kafka/pub-sub systems are usually namespaced — one topic per *event
+  stream*, not per *entity*. Using orderID as a stand-in for the single
+  topic this emulator models (location updates only) is a reasonable
+  simplification, with the real-world gap correctly identified rather than
+  papered over.
