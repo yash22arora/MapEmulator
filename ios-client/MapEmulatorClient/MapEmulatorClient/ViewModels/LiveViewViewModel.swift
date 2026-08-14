@@ -23,7 +23,10 @@ class LiveViewViewModel {
     func startFetchingRiderLocation() async {
         do {
             for try await update in dataManager.startStreaming() {
-                riderLocation = CLLocation(latitude: update.lat, longitude: update.lng)
+                withAnimation(.linear(duration: 1)) {
+                    riderLocation = CLLocation(latitude: update.lat, longitude: update.lng)
+                }
+               
             }
         } catch(let error) {
             print("Error in streaming: \(error)")
@@ -47,7 +50,9 @@ class LiveViewViewModel {
                 print("No route found")
                 return
             }
-            self.route = route
+            withAnimation(.linear(duration: 1)) {
+                self.route = route
+            }
         } catch {
             print("Error while fetching directions")
         }
