@@ -1,5 +1,5 @@
 //
-//  LiveView.swift
+//  CustomerView.swift
 //  MapEmulatorClient
 //
 //  Created by Yashvardhan Arora on 02/07/26.
@@ -8,9 +8,10 @@
 import SwiftUI
 import MapKit
 
-struct LiveView: View {
+struct CustomerView: View {
     @State private var viewModel = LiveViewViewModel()
     @State private var routeTask: Task<Void, Never>?
+    let topic : String
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -34,7 +35,7 @@ struct LiveView: View {
             }
             .mapStyle(.standard(pointsOfInterest: .excludingAll))
         }
-        .navigationTitle("Live View")
+        .navigationTitle("Track your Order #\(topic)")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.startFetchingRiderLocation()
@@ -59,5 +60,5 @@ extension CLLocationCoordinate2D {
 }
 
 #Preview {
-    LiveView()
+    CustomerView(topic: "1234")
 }
