@@ -1,31 +1,22 @@
 import { DummyQueue } from "./queue";
+import { TopicChannel } from "./TopicChannel";
 import { LocationUpdate } from "./types";
 import { Response } from "express";
 
-const broadCastLocation = (
-  queue: DummyQueue<LocationUpdate>,
-  connections: Response[],
-) => {
-  let recentLocation = queue.getRecentItem();
-  if (recentLocation) {
-    connections.forEach((conn) => {
-      conn.write(`data: ${JSON.stringify(recentLocation)}\n\n`);
-    });
-    console.log(
-      "Dropped:",
-      queue.getQueueSize() - 1,
-      "\t",
-      "Broadcasted:",
-      recentLocation,
-    );
-    queue.empty();
-  }
-};
+export const registry = new Map<string, TopicChannel<LocationUpdate>>();
 
-export const broadcastWorker = {
-  start: (queue: DummyQueue<LocationUpdate>, connections: Response[]) => {
-    setInterval(() => {
-      broadCastLocation(queue, connections);
-    }, 1000); // Broadcast every second
-  },
+export const getOrCreateTopicChannel = (
+  topic: string,
+): TopicChannel<LocationUpdate> => {
+  if (!registry.has(topic)) {
+    const queue = new DummyQueue<LocationUpdate>();
+    const connections = new Set<Response>();
+    const topicChannel = new TopicChannel<LocationUpdate>(
+      topic,
+      queue,
+      connections,
+    );
+    registry.set(topic, topicChannel);
+  }
+  return registry.get(topic)!;
 };

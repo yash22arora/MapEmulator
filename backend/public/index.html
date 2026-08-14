@@ -11,6 +11,12 @@
   </head>
   <body>
     <h1>Map Emulator control UI</h1>
+    <div style="position: absolute; z-index: 1000; margin: 10px">
+      <label>
+        Topic:
+        <input id="topic" type="text" placeholder="e.g. order-1234" />
+      </label>
+    </div>
     <div id="map" style="height: 100vh; width: 100vw"></div>
 
     <script>
@@ -19,9 +25,16 @@
         attribution: "&copy; OpenStreetMap contributors",
       }).addTo(map);
 
+      const topicInput = document.getElementById("topic");
       let marker;
 
       map.on("click", (e) => {
+        const topic = topicInput.value.trim();
+        if (!topic) {
+          alert("Enter a topic before clicking the map.");
+          return;
+        }
+
         const { lat, lng } = e.latlng;
         const ts = Date.now();
 
@@ -34,7 +47,7 @@
         fetch("/location", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lat, lng, ts }),
+          body: JSON.stringify({ topic, lat, lng, ts }),
         });
       });
     </script>

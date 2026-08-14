@@ -2,30 +2,37 @@ import express, { Request, Response } from "express";
 import type { LocationUpdate } from "./types";
 import { OutgoingHttpHeaders } from "node:http";
 import { DummyQueue } from "./queue";
-import { broadcastWorker } from "./services";
-
+import { getOrCreateTopicChannel } from "./services";
 const app = express();
 const PORT = 3000;
-let connections: Response[] = [];
-const queue = new DummyQueue<LocationUpdate>();
 
 app.use(express.static("public"));
 
 app.get("/stream", (req: Request, res: Response) => {
+  const topic = req.query.topic;
+  if (!topic || typeof topic !== "string") {
+    res.status(400).send("Topic query parameter is required.");
+    return;
+  }
+
+  const topicChannel = getOrCreateTopicChannel(topic);
+
   const sseHeaders: OutgoingHttpHeaders = {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   };
   res.writeHead(200, sseHeaders);
-  connections.push(res);
+  topicChannel.addConnection(res);
+  topicChannel.start(); // Start broadcasting if not already started
 
   // Clean up when the client disconnects
   req.on("close", () => {
-    if (connections.indexOf(res) !== -1) {
-      connections.splice(connections.indexOf(res), 1);
-      res.end();
+    topicChannel.removeConnection(res);
+    if (topicChannel.connections.size === 0) {
+      topicChannel.stop();
     }
+    res.end();
   });
 });
 
@@ -33,17 +40,18 @@ app.post(
   "/location",
   express.json(),
   (req: Request<{}, {}, LocationUpdate>, res: Response) => {
-    const { lat, lng, ts } = req.body;
-    const locationData: LocationUpdate = { lat, lng, ts };
-
-    queue.enqueue(locationData);
+    const { topic, lat, lng, ts } = req.body;
+    if (!topic || lat === undefined || lng === undefined || ts === undefined) {
+      res.status(400).send("Missing required fields: topic, lat, lng, ts.");
+      return;
+    }
+    const locationData: LocationUpdate = { topic, lat, lng, ts };
+    let topicChannel = getOrCreateTopicChannel(topic);
+    topicChannel.queue.enqueue(locationData);
 
     res.status(200).send("Location data sent to clients.");
   },
 );
-
-// Start the broadcast worker to send location updates to all connected clients
-broadcastWorker.start(queue, connections);
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
