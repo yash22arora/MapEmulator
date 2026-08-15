@@ -101,7 +101,7 @@ That topic's worker loop (fires every ~500ms)
 Broadcast via SSE to clients subscribed to that topic only
    │
    ▼
-Customer (iOS, Google Maps): GET /stream?topic=X, hand-rolled SSE parser
+Customer (iOS, Google Maps): GET /location/stream?topic=X, hand-rolled SSE parser
 over URLSession.bytes(for:) → parses `data:` lines → new coordinate
    │
    ▼
@@ -136,7 +136,7 @@ unreliability.
 | 4 | iOS client, no interpolation | SwiftUI MapKit view, hand-rolled SSE client, marker snaps directly to each new coordinate | Consuming SSE on iOS; seeing the "jump" problem firsthand |
 | 5 | Route rendering | Fixed drop/pickup coordinate; `MKDirections` computes a road-snapped route once from the rider's starting position, rendered as a static `MapPolyline` overlay | Apple's native routing API (`MKDirections`/`MKRoute`); one-shot async request vs. a live stream |
 | 6 | App restructure | `HomeView` (topic field + Rider/Customer nav buttons), scaffolded `RiderView`/`CustomerView`, `NavigationStack` wiring, shared topic state passed down two divergent flows | Single-app multi-role navigation |
-| 7 | Backend multi-tenancy | `Map<topic, TopicChannel>`, each with its own queue/worker/connections, lazily created on first use; `POST /location` and `GET /stream` become topic-scoped; Leaflet control UI gets a topic field | Pub/sub partitioning — independent producer/consumer pipelines sharing one process |
+| 7 | Backend multi-tenancy | `Map<topic, TopicChannel>`, each with its own queue/worker/connections, lazily created on first use; `POST /location` and `GET /location/stream` become topic-scoped; Leaflet control UI gets a topic field | Pub/sub partitioning — independent producer/consumer pipelines sharing one process |
 | 8 | Rider client | MapKit tap-to-select point, `POST /location` with topic, wired against Phase 7's backend | Producing into a named topic |
 | 9 | Customer client + Google Maps | `GMSMapView` integration (API key setup, `GMSMapView`/`GMSMarker`), SSE subscribe by topic, marker **snaps** (no lerp yet — deliberately re-surfaces the "jump" problem on the new SDK), `MKDirections`-computed route rendered as a `GMSPolyline` | New map SDK's core APIs; separating "compute a route" from "render a route" |
 | 10 | Client-side interpolation | Linear interpolation (lerp) between last and new position on the `GMSMarker`, animated over a fixed duration | Core interpolation math + animation loop, now against Google Maps' marker API |
@@ -242,3 +242,10 @@ flush strategy, and topic architecture — all resolved, see Amendments below.
     as a burst of individual `POST /location` calls (re-exercising the
     Phase 3 backend conflation path under load) rather than having the
     client itself conflate down to a single latest point before sending.
+
+- **2026-08-15, during Phase 7:** Owner renamed the SSE subscribe endpoint
+  from `GET /stream` to `GET /location/stream`, to read consistently
+  alongside `POST /location` now that both live under the same resource.
+  Applies from this point forward; earlier phase entries in the learning
+  and progress logs describing `GET /stream` remain accurate as historical
+  record of what existed at the time and were not retroactively edited.

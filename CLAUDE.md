@@ -122,7 +122,9 @@ expansion and each new phase's ordering.
 - [x] Phase 6 — App restructure (`HomeView` topic field + Rider/Customer nav,
       scaffolded `RiderView`/`CustomerView`)
 - [x] Phase 7 — Backend multi-tenancy (per-topic queue/worker/connections;
-      `POST /location` and `GET /stream` become topic-scoped)
+      `POST /location` and `GET /location/stream` become topic-scoped;
+      endpoint renamed from `/stream` mid-phase for consistency with `POST
+      /location`)
 - [ ] Phase 8 — Rider client (MapKit tap-to-select point, posts to topic)
 - [ ] Phase 9 — Customer client + Google Maps SDK swap (marker snaps, no
       lerp yet; `MKDirections` route rendered as `GMSPolyline`)

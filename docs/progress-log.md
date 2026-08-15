@@ -299,8 +299,10 @@ generic class bundling one topic's `DummyQueue<T>`, `Set<Response>`
 connections, and its own idempotent `start()`/`stop()` broadcast interval;
 `getOrCreateTopicChannel` registry (`backend/src/services.ts`) backed by a
 `Map<string, TopicChannel<LocationUpdate>>`, lazily creating channels from
-either endpoint; `server.ts` rewired so `POST /location` and `GET /stream`
-both resolve a topic-scoped channel instead of touching module-level
+either endpoint; `server.ts` rewired so `POST /location` and `GET
+/location/stream` (renamed from `/stream` mid-phase, see Amendments in the
+design spec) both resolve a topic-scoped channel instead of touching
+module-level
 singletons, with request validation (400 on missing `topic`/fields) added
 to both. Good instinct, unprompted: swapped `connections` from `Response[]`
 to `Set<Response>`, closing the `indexOf`-returns-`-1` edge case flagged
@@ -351,7 +353,7 @@ handed over directly" precedent as the original Leaflet wiring in Phase 2.
    `/// To be deleted` comment, confirmed genuinely unused, then removed).
 
 **Design discussion, not a bug:** `TopicChannel.start()` is only invoked
-from `GET /stream`, and the owner added `stop()` on the last subscriber's
+from `GET /location/stream`, and the owner added `stop()` on the last subscriber's
 disconnect — so a topic's broadcast interval only runs while at least one
 customer is connected. Deliberate efficiency choice, discussed and kept:
 the trade-off is that `POST`ed updates during a subscriber-less gap sit
@@ -363,7 +365,7 @@ catch-up of what happened — consistent with the project's existing
 than hypothetical.
 
 **Verified:** `tsc --noEmit` clean; manual `curl` pass — two concurrent
-`GET /stream` subscriptions on different topics confirmed isolated (a
+`GET /location/stream` subscriptions on different topics confirmed isolated (a
 `POST` to one topic never appeared on the other's stream), burst-POST
 conflation confirmed per-topic via topic-labeled console logs, both
 missing-`topic` validation paths returned 400, and the disconnect →
