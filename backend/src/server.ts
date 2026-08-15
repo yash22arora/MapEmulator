@@ -8,7 +8,7 @@ const PORT = 3000;
 
 app.use(express.static("public"));
 
-app.get("/stream", (req: Request, res: Response) => {
+app.get("/location/stream", (req: Request, res: Response) => {
   const topic = req.query.topic;
   if (!topic || typeof topic !== "string") {
     res.status(400).send("Topic query parameter is required.");

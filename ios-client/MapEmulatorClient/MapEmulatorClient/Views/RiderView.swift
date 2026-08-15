@@ -14,10 +14,15 @@ struct RiderView: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Map {
-                /// Can add annotations for current location
+            MapReader { proxy in
+                Map {
+                    /// Can add annotations for current location
+                }
+                .mapStyle(.standard(pointsOfInterest: .excludingAll))
+                .onTapGesture {
+                    
+                }
             }
-            .mapStyle(.standard(pointsOfInterest: .excludingAll))
         }
         .navigationTitle("Delivering Order #\(topic)")
         .navigationBarTitleDisplayMode(.inline)

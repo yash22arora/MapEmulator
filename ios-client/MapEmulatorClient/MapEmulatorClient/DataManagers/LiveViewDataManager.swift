@@ -15,7 +15,7 @@ class LiveViewDataManager: LiveViewDataManaging {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    guard let endpointURL = URL(string: "http://localhost:3000/stream") else {
+                    guard let endpointURL = URL(string: "http://localhost:3000/location/stream") else {
                         continuation.finish(throwing: URLError(.badURL))
                         return
                     }
