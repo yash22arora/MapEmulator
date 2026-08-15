@@ -314,3 +314,51 @@ this value?
   topic this emulator models (location updates only) is a reasonable
   simplification, with the real-world gap correctly identified rather than
   papered over.
+
+---
+
+## Phase 7 — Backend multi-tenancy (per-topic queue/worker/connections)
+
+**Q:** During the design discussion, we chose per-topic queue + worker +
+connections (each topic gets its own independent trio) over the
+alternative — one shared queue + one shared worker, where every item is
+tagged with its topic and a single loop routes it to the right
+subscribers. Now that you've actually built the per-topic version: what
+specifically would go wrong (or get worse) with the shared-queue
+alternative, in terms of the behavior your `curl` tests just exercised?
+
+**Raw answer:**
+> In case of the shared queue, firstly, we'll need to maintain a pair of
+> {topic, request} instead of per-topic request pool. Then, whenever a new
+> location /POST request comes in, we'll have to iterate over the request
+> pool and filter requests and stream to all those requests. It will add
+> time complexity and can induce delays in high traffic scenarios. Its
+> much more difficult to maintain.
+>
+> Is there anything i am missing?
+
+**Assessment / corrections:**
+- The filtering-overhead/maintenance-complexity point is real, but the
+  bigger issue is **correctness, not just performance** — and it's exactly
+  what the burst-conflation `curl` test exercised. The current conflation
+  logic (`getRecentItem()` + `empty()` each tick) means "keep only the
+  single most recent item, discard the rest." That's safe today because
+  each `DummyQueue` only ever holds one topic's items. In a shared queue,
+  the same logic would keep only the single most recent item **across all
+  topics** — if `order-A` and `order-B` both get an update in the same
+  tick, whichever landed last survives and the other topic's update is
+  **silently and permanently dropped**, not delayed. Fixing that requires
+  conflation to become "latest item per topic key" (e.g. a `Map<topic,
+  item>`), which just reinvents per-topic separation with extra
+  indirection instead of avoiding it.
+- Second angle, tied to the actual design rationale ("so one busy topic
+  can't starve another's dispatch timing"): `DummyQueue`'s fixed 100-item
+  cap evicts the *oldest* item once full. In a shared queue, a bursty
+  topic filling toward that cap could evict a quiet topic's not-yet-
+  broadcast item first — a noisy-neighbor problem the per-topic design
+  avoids by construction, since each topic gets its own independent
+  eviction budget.
+- Owner explicitly asked "is there anything I'm missing" rather than
+  treating the first-pass answer as complete — good instinct, consistent
+  with the Phase 5 pattern of actively checking a completed fix rather
+  than assuming a review comment is satisfied.

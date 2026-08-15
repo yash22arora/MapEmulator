@@ -289,3 +289,83 @@ producer logic yet.
 **Verified:** real Xcode build succeeded; `HomeView` → topic entry → both
 `RiderView` and `CustomerView` push correctly with the topic reflected in
 each nav title. Committed and pushed by the owner.
+
+---
+
+## Phase 7 — Backend multi-tenancy (per-topic queue/worker/connections)
+
+**Owner-written:** `TopicChannel<T>` (`backend/src/TopicChannel.ts`) —
+generic class bundling one topic's `DummyQueue<T>`, `Set<Response>`
+connections, and its own idempotent `start()`/`stop()` broadcast interval;
+`getOrCreateTopicChannel` registry (`backend/src/services.ts`) backed by a
+`Map<string, TopicChannel<LocationUpdate>>`, lazily creating channels from
+either endpoint; `server.ts` rewired so `POST /location` and `GET /stream`
+both resolve a topic-scoped channel instead of touching module-level
+singletons, with request validation (400 on missing `topic`/fields) added
+to both. Good instinct, unprompted: swapped `connections` from `Response[]`
+to `Set<Response>`, closing the `indexOf`-returns-`-1` edge case flagged
+(but never hit) back in Phase 4's disconnect-handling review — `Set.delete`
+needs no index lookup at all.
+
+**Claude-scaffolded (tooling, not a learning target):** added a topic text
+input to the Leaflet control UI (`backend/public/index.html`) and wired it
+into the existing `POST /location` call, matching the same "boilerplate
+handed over directly" precedent as the original Leaflet wiring in Phase 2.
+
+**Design iteration on `TopicChannel`, guided but owner-implemented:**
+1. First draft hardcoded `implements ITopicChannel<LocationUpdate>` with a
+   separate, non-generic interface. Reworked to a true generic
+   (`class TopicChannel<T> implements ITopicChannel<T>`), motivated by the
+   Phase 6 quiz insight that a real order could have multiple topic
+   families (location/status/payment) — this class no longer needs to know
+   its payload type.
+2. Attempted to mark `started` `private` while it was still declared in
+   `ITopicChannel` — hit a genuine TypeScript rule most people don't
+   expect: an interface can only describe a type's *public* members, so a
+   class implementing it cannot narrow a declared member to `private`.
+   Fixed by removing `started` from the interface entirely (it was never
+   part of the public contract — internal-only bookkeeping for whether
+   `start()` had already fired), not by working around the access
+   modifier.
+
+**Bugs found during review, both owner-fixed:**
+1. `stop()` set `this.started = false` but never captured the
+   `setInterval` handle anywhere, so it couldn't actually `clearInterval`
+   — the timer kept running regardless. A later `start()` call would have
+   spun up a *second* concurrent interval against the same queue/
+   connections, silently double-broadcasting — exactly the failure mode
+   the `started` guard existed to prevent, just via a different path.
+   Fixed by storing `intervalId` on the instance and clearing it in
+   `stop()`.
+2. `const topic = req.query.topic as string` — a type assertion, not a
+   runtime check. Express types `req.query.topic` as
+   `string | ParsedQs | (string | ParsedQs)[] | undefined`; the cast would
+   have let a malformed query string (e.g. `?topic=a&topic=b`, parsed as an
+   array) flow through as if it were a plain string with no error at any
+   point. Same category of bug as Phase 3's `ts: Date` vs. `ts: number`
+   mismatch — a type-level assertion standing in for an actual runtime
+   check. Fixed with `typeof req.query.topic !== "string"` narrowing
+   instead of a cast.
+3. Vestigial module-level `connections`/`queue` singletons left in
+   `server.ts` after the registry rewire (self-flagged by the owner with a
+   `/// To be deleted` comment, confirmed genuinely unused, then removed).
+
+**Design discussion, not a bug:** `TopicChannel.start()` is only invoked
+from `GET /stream`, and the owner added `stop()` on the last subscriber's
+disconnect — so a topic's broadcast interval only runs while at least one
+customer is connected. Deliberate efficiency choice, discussed and kept:
+the trade-off is that `POST`ed updates during a subscriber-less gap sit
+unconflated in the raw queue (up to `DummyQueue`'s 100-item cap, oldest
+evicted first) rather than being conflated away each tick, and a
+reconnecting customer still only ever sees the single latest point, not a
+catch-up of what happened — consistent with the project's existing
+"live-edge only, no replay buffer" stance, just made concrete here rather
+than hypothetical.
+
+**Verified:** `tsc --noEmit` clean; manual `curl` pass — two concurrent
+`GET /stream` subscriptions on different topics confirmed isolated (a
+`POST` to one topic never appeared on the other's stream), burst-POST
+conflation confirmed per-topic via topic-labeled console logs, both
+missing-`topic` validation paths returned 400, and the disconnect →
+`removeConnection` → `stop()` path did not crash the server. Browser
+control UI re-verified end-to-end with the new topic field.
