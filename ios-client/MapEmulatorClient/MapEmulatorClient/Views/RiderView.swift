@@ -9,18 +9,32 @@ import SwiftUI
 import MapKit
 
 struct RiderView: View {
-    @State private var viewModel = LiveViewViewModel()
+    @State private var viewModel = RiderViewModel()
+    @State private var selectedCoordinate: CLLocationCoordinate2D?
     let topic : String
 
     var body: some View {
         VStack(alignment: .leading) {
             MapReader { proxy in
                 Map {
-                    /// Can add annotations for current location
+                    if let selectedCoordinate {
+                        Annotation("Pickup", coordinate: selectedCoordinate) {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.title)
+                                .foregroundStyle(.red)
+                        }
+                    }
                 }
                 .mapStyle(.standard(pointsOfInterest: .excludingAll))
-                .onTapGesture {
+                .onTapGesture { screenPoint in
                     
+                    if let coordinate = proxy.convert(screenPoint, from: .local) {
+                        selectedCoordinate = coordinate
+                        let payload = LocationUpdate(topic: topic, lat: coordinate.latitude, lng: coordinate.longitude, ts: Date().timeIntervalSince1970)
+                        Task {
+                            await viewModel.sendLocationUpdate(location: payload)
+                        }
+                    }
                 }
             }
         }

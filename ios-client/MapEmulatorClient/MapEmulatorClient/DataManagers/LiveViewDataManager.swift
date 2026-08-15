@@ -8,6 +8,7 @@ import Foundation
 
 protocol LiveViewDataManaging {
     func startStreaming() -> AsyncThrowingStream<LocationUpdate, Error>
+    func sendLocationUpdate(payload: LocationUpdate) async throws
 }
 
 class LiveViewDataManager: LiveViewDataManaging {
@@ -42,6 +43,23 @@ class LiveViewDataManager: LiveViewDataManaging {
                     continuation.finish(throwing: error)
                 }
             }
+        }
+    }
+    
+    func sendLocationUpdate(payload: LocationUpdate) async throws {
+        guard let endpointURL = URL(string: "http://localhost:3000/location") else {
+            throw URLError(.badURL)
+        }
+
+        var request = URLRequest(url: endpointURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(payload)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
         }
     }
 }
