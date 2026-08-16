@@ -15,7 +15,7 @@ struct CustomerView: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            GoogleMapsViewRepresentable(riderCoordinate: viewModel.riderLocation?.coordinate, homeCoordinate: viewModel.homeCoordinate.coordinate)
+            GoogleMapsViewRepresentable(riderCoordinate: viewModel.riderLocation?.coordinate, homeCoordinate: viewModel.homeCoordinate.coordinate, route: viewModel.route)
                 .frame(height: 500)
         }
         .frame(alignment: .top)
