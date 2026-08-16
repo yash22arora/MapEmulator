@@ -13,16 +13,27 @@ enum BackendConfig {
 }
 
 protocol LiveViewDataManaging {
-    func startStreaming() -> AsyncThrowingStream<LocationUpdate, Error>
+    func startStreaming(topic: String) -> AsyncThrowingStream<LocationUpdate, Error>
     func sendLocationUpdate(payload: LocationUpdate) async throws
 }
 
 class LiveViewDataManager: LiveViewDataManaging {
-    func startStreaming() -> AsyncThrowingStream<LocationUpdate, Error> {
+    func startStreaming(topic: String) -> AsyncThrowingStream<LocationUpdate, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    guard let endpointURL = URL(string: "\(BackendConfig.baseURL)/location/stream") else {
+                    guard var components = URLComponents(
+                        string: "\(BackendConfig.baseURL)/location/stream"
+                    ) else {
+                        continuation.finish(throwing: URLError(.badURL))
+                        return
+                    }
+                    
+                    components.queryItems = [
+                        URLQueryItem(name: "topic", value: topic)
+                    ]
+                    
+                    guard let endpointURL = components.url else {
                         continuation.finish(throwing: URLError(.badURL))
                         return
                     }

@@ -21,9 +21,9 @@ class LiveViewViewModel {
         self.dataManager = dataManager
     }
     
-    func startFetchingRiderLocation() async {
+    func startFetchingRiderLocation(topic: String) async {
         do {
-            for try await update in dataManager.startStreaming() {
+            for try await update in dataManager.startStreaming(topic: topic) {
                 withAnimation(.linear(duration: 1)) {
                     riderLocation = CLLocation(latitude: update.lat, longitude: update.lng)
                 }

@@ -8,6 +8,7 @@
 import SwiftUI
 import GoogleMaps
 import MapKit
+import UIKit
 
 class MapCoordinator {
     var marker: GMSMarker?
@@ -19,8 +20,15 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
     
     /// Called once when MapsView is constructed
     func makeUIView(context: Context) -> GMSMapView {
-        let uiView = GMSMapView()
-        uiView.camera = GMSCameraPosition(target: homeCoordinate, zoom: 14)
+        let mapID = GMSMapID(identifier: "120581de6cb7eed0e8d4fc7b")
+        let camera = GMSCameraPosition(target: homeCoordinate, zoom: 14.7)
+        let uiView = GMSMapView(frame: .zero, mapID: mapID, camera: camera)
+        
+        // Home Marker
+        let homeMarker = GMSMarker(position: homeCoordinate)
+        homeMarker.icon = GoogleMapsViewRepresentable.markerImage(systemName: "house.fill", tint: .systemGreen)
+        homeMarker.groundAnchor = CGPoint(x: 0.5, y: 0.5)
+        homeMarker.map = uiView
         
         return uiView
     }
@@ -33,6 +41,8 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             marker.position = riderCoordinate
         } else {
             let marker = GMSMarker(position: riderCoordinate)
+            marker.icon = GoogleMapsViewRepresentable.markerImage(systemName: "car.fill", tint: .systemBlue)
+            marker.groundAnchor = CGPoint(x: 0.5, y: 0.5)
             marker.map = uiView
             context.coordinator.marker = marker
         }
@@ -41,5 +51,11 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
     
     func makeCoordinator() -> MapCoordinator {
         MapCoordinator()
+    }
+    
+    private static func markerImage(systemName: String, tint: UIColor) -> UIImage? {
+        UIImage(systemName: systemName)?
+            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 30, weight: .medium))
+            .withTintColor(tint, renderingMode: .alwaysOriginal)
     }
 }

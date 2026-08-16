@@ -70,6 +70,7 @@ struct HomeView: View {
                 VStack(spacing: 12) {
                     Button {
                         isTopicFocused = false
+                        guard !trimmedTopic.isEmpty else { return }
                         path.append(Destination.rider(topic: trimmedTopic))
                     } label: {
                         Label("Enter as Rider", systemImage: "car.fill")
@@ -82,6 +83,7 @@ struct HomeView: View {
 
                     Button {
                         isTopicFocused = false
+                        guard !trimmedTopic.isEmpty else { return }
                         path.append(Destination.customer(topic: trimmedTopic))
                     } label: {
                         Label("Enter as Customer", systemImage: "location.fill")

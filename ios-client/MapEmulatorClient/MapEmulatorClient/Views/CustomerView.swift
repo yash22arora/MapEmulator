@@ -16,12 +16,13 @@ struct CustomerView: View {
     var body: some View {
         VStack(alignment: .leading) {
             GoogleMapsViewRepresentable(riderCoordinate: viewModel.riderLocation?.coordinate, homeCoordinate: viewModel.homeCoordinate.coordinate)
-                .frame(height: 400)
+                .frame(height: 500)
         }
+        .frame(alignment: .top)
         .navigationTitle("Track your Order #\(topic)")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            await viewModel.startFetchingRiderLocation()
+            await viewModel.startFetchingRiderLocation(topic: topic)
         }
         .onChange(of: viewModel.riderLocation) {
             if let routeTask = routeTask {
