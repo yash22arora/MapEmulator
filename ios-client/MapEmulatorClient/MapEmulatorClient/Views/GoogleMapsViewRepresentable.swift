@@ -28,7 +28,9 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         
         // Home Marker
         let homeMarker = GMSMarker(position: homeCoordinate)
-        homeMarker.icon = GoogleMapsViewRepresentable.markerImage(systemName: "house.fill", tint: .systemGreen)
+        homeMarker.icon = UIImage(named: "home").map {
+            GoogleMapsViewRepresentable.resizedImage($0, to: CGSize(width: 50, height: 50))
+        }
         homeMarker.groundAnchor = CGPoint(x: 0.5, y: 0.5)
         homeMarker.map = uiView
         
@@ -43,7 +45,9 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             marker.position = riderCoordinate
         } else {
             let marker = GMSMarker(position: riderCoordinate)
-            marker.icon = UIImage(named: "car.png")
+            marker.icon = UIImage(named: "car").map {
+                GoogleMapsViewRepresentable.resizedImage($0, to: CGSize(width: 50, height: 40))
+            }
             marker.groundAnchor = CGPoint(x: 0.5, y: 0.5)
             marker.map = uiView
             context.coordinator.marker = marker
@@ -76,6 +80,15 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         UIImage(systemName: systemName)?
             .withConfiguration(UIImage.SymbolConfiguration(pointSize: 30, weight: .medium))
             .withTintColor(tint, renderingMode: .alwaysOriginal)
+    }
+
+    /// Loose bundled PNGs (no Asset Catalog scale variants) load at scale
+    /// 1.0, so a 320x256 source image reports a 320x256-point UIImage.size —
+    /// this redraws it down to a sane marker size.
+    private static func resizedImage(_ image: UIImage, to size: CGSize) -> UIImage {
+        UIGraphicsImageRenderer(size: size).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
     }
 }
 
