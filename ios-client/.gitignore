@@ -2,3 +2,4 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 .build/
+MapEmulatorClient/MapEmulatorClient/Secrets.swift
