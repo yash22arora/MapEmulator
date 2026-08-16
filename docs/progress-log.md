@@ -455,3 +455,71 @@ UI being handed over in Phase 2.
   and found it wasn't actually triggering on this account/tier, so the
   header is precautionary rather than a confirmed fix for an observed
   problem.
+
+---
+
+## Phase 9 — Customer client + Google Maps SDK swap
+
+**Owner-written:** `GoogleMapsViewRepresentable` (new) — the
+`UIViewRepresentable` wrapper around `GMSMapView`, with a `MapCoordinator`
+(new concept this phase — see
+[docs/uiviewrepresentable-lifecycle.md](uiviewrepresentable-lifecycle.md),
+written this phase as a general-purpose reference, not just a Phase 9
+note) persisting a `GMSMarker` (rider) and later a `GMSPolyline` (route)
+across `updateUIView` calls via create-or-update branching. Cloud-based
+map styling via `GMSMapID`, wired through the `GMSMapView(frame:mapID:
+camera:)` initializer. Custom PNG marker icons for both rider and home
+(replacing the initial SF Symbol-based icons), with a `resizedImage`
+helper to correct for loose bundled PNGs loading at `scale = 1.0` (a
+320x256 source image would otherwise render as a 320x256-**point** — i.e.
+near-full-screen — marker). `LiveViewViewModel.startFetchingRiderLocation`
+and `LiveViewDataManaging.startStreaming` both widened to take a
+`topic: String` parameter, fixing the gap flagged back in Phase 8 (SSE
+subscription previously hit a bare, non-topic-scoped endpoint that the
+Phase 7 backend would 400 against) — topic threaded through via
+`URLComponents` (correct percent-encoding of the topic value, not manual
+string interpolation).
+
+**Claude-scaffolded/guided, mix of explained-then-owner-built and
+directly-written on request:**
+- `UIViewRepresentable`/`Coordinator` concept explained before the owner
+  built it (a genuinely new mental model — imperative sync against a
+  persistent UIKit object, vs. SwiftUI's usual declarative rebuild — see
+  the lifecycle doc for the full writeup).
+- `Secrets.swift` (gitignored) + `Secrets.swift.example` (committed
+  template) for the Google Maps API key, after catching the raw key
+  hardcoded directly in `MapEmulatorClientApp.swift` before it was ever
+  committed — moved before it could leak into git history.
+- `MKPolyline` → `GMSPolyline` conversion written directly by Claude on
+  explicit request (owner: "You write the code and give me a summary of
+  what and why") — judged as boilerplate/mechanical (a data-format bridge
+  between two SDKs' geometry types, not a design decision) rather than
+  core phase content, consistent with how `sendLocationUpdate`'s POST
+  mechanics were handled in Phase 8.
+- Cloud map styling and PNG icon debugging: diagnosed style not applying
+  as a Cloud Console publish-state issue (code was already correct, using
+  the right initializer), and marker image not centering as `GMSMarker
+  .groundAnchor` defaulting to `(0.5, 1.0)` — a bottom-center pin anchor,
+  wrong for square SF-Symbol/PNG icons — fixed with `(0.5, 0.5)`.
+
+**Bugs found and fixed, all owner-caught or owner-fixed after diagnosis:**
+1. The Coordinator's `else` (create) branch initially did
+   `context.coordinator.marker?.map = uiView` — optional-chaining on the
+   very `nil` that put it in the `else` branch in the first place, so it
+   silently no-op'd and no marker was ever created. Fixed by actually
+   constructing the `GMSMarker` in that branch before assigning it.
+2. `UIImage(named: "car.png")` — including the file extension in a
+   `UIImage(named:)` lookup, which searches by base resource name. Fixed
+   to `UIImage(named: "car")`, and resolved the underlying Asset-Catalog
+   build error by moving to a loose bundled PNG instead (this Xcode
+   project's synchronized-folder format picks up any file dropped in the
+   source directory automatically, no manual target-membership step).
+3. `NavigationStack` navigation-not-firing bug from the Phase 6/tooling
+   entry above was unrelated to this phase but is the reason `HomeView`'s
+   role buttons actually work now, which this phase's `CustomerView`
+   entry point depends on.
+
+**Verified:** real device build/run — cloud map style, both custom PNG
+markers (correctly sized and centered), the route polyline, and live
+rider-marker snapping all confirmed working together, not just
+independently as each piece was built.

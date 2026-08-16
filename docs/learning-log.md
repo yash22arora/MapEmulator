@@ -412,3 +412,38 @@ when Phase 5's route fetch specifically needed that protection?
   server, possibly out of order" scenario this question describes —
   turning it from a theoretical edge case into one Phase 12 will likely
   trigger for real.
+
+---
+
+## Phase 9 — Customer client + Google Maps SDK swap
+
+**Q:** In your own words — why did both the marker *and* the polyline need
+to go through the `Coordinator`, instead of just being created fresh
+inside `updateUIView` every time it runs? What would you actually have
+seen on screen if you'd skipped the Coordinator and just done
+`GMSMarker(position: riderCoordinate).map = uiView` directly inside
+`updateUIView`, with no `if let`/`else` check at all?
+
+**Raw answer:**
+> Multiple markers overlapping - basically a new marker everytime
+> updateView would have ran (on each state update). Coordinator helps
+> manage stuff that needs to persist across instance creations
+> (UIViewRepresentable instances) whenever SwiftUI rerenders and
+> recomputes the views.
+
+**Assessment / corrections:**
+- Correct on the core mechanism. One sharpening on the visual outcome:
+  not quite "overlapping" — `updateUIView` only re-runs *because*
+  `riderCoordinate` changed to something new each time, so a fresh
+  marker created at the current coordinate on every call would produce a
+  breadcrumb trail of abandoned markers at each of the rider's past
+  positions, never removed, rather than a pile stacked at one point.
+- One terminology precision worth having, since it's foundational to
+  value vs. reference semantics generally: a struct has no "instances"
+  with identity the way a class does. Every SwiftUI re-render produces a
+  completely fresh, independent `GoogleMapsViewRepresentable` value,
+  unrelated to the previous one. The `Coordinator` isn't surviving
+  *between* instances of the struct — it's the one deliberately
+  reference-typed piece of state SwiftUI keeps alive and hands back
+  across an otherwise fully disposable, stateless sequence of struct
+  values.

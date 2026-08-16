@@ -126,7 +126,7 @@ expansion and each new phase's ordering.
       endpoint renamed from `/stream` mid-phase for consistency with `POST
       /location`)
 - [x] Phase 8 — Rider client (MapKit tap-to-select point, posts to topic)
-- [ ] Phase 9 — Customer client + Google Maps SDK swap (marker snaps, no
+- [x] Phase 9 — Customer client + Google Maps SDK swap (marker snaps, no
       lerp yet; `MKDirections` route rendered as `GMSPolyline`)
 - [ ] Phase 10 — Client-side interpolation (lerp, fixed duration, on `GMSMarker`)
 - [ ] Phase 11 — Realism upgrade (adaptive duration + bearing rotation)
