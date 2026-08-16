@@ -10,6 +10,7 @@ import MapKit
 @Observable
 class LiveViewViewModel {
     private(set) var riderLocation: CLLocation?
+    private(set) var homeCoordinate = CLLocation.home
     private(set) var route: MKRoute?
     private var dataManager: LiveViewDataManaging
     

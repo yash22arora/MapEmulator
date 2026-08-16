@@ -15,25 +15,8 @@ struct CustomerView: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Map {
-                if let route = viewModel.route {
-                    MapPolyline(route.polyline)
-                        .stroke(.orange, lineWidth: 4)
-                }
-                if let location = viewModel.riderLocation?.coordinate {
-                    Annotation("Rider", coordinate: CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude)) {
-                        Image(systemName: "car.fill") // swap for a real cab/bike PNG later if you want
-                            .font(.title)
-                            .foregroundStyle(.blue)
-                    }
-                }
-                Annotation("Home", coordinate: CLLocationCoordinate2D(location: .home)) {
-                    Image(systemName: "house.fill")
-                        .font(.title)
-                        .foregroundStyle(.green)
-                }
-            }
-            .mapStyle(.standard(pointsOfInterest: .excludingAll))
+            GoogleMapsViewRepresentable(riderCoordinate: viewModel.riderLocation?.coordinate, homeCoordinate: viewModel.homeCoordinate.coordinate)
+                .frame(height: 400)
         }
         .navigationTitle("Track your Order #\(topic)")
         .navigationBarTitleDisplayMode(.inline)
