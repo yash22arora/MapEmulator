@@ -371,3 +371,87 @@ conflation confirmed per-topic via topic-labeled console logs, both
 missing-`topic` validation paths returned 400, and the disconnect →
 `removeConnection` → `stop()` path did not crash the server. Browser
 control UI re-verified end-to-end with the new topic field.
+
+---
+
+## Phase 8 — Rider client (producing into a topic)
+
+**Owner-written:** `RiderView`'s tap-to-select flow — `MapReader` +
+`.onTapGesture { screenPoint in ... }` + `proxy.convert(_:from:)` to turn a
+tap into a `CLLocationCoordinate2D`, rendered as a pin `Annotation`;
+`RiderViewModel` (new, mirroring `LiveViewViewModel`'s DI shape) wrapping
+`LiveViewDataManaging` and exposing `sendLocationUpdate(location:)`;
+`LocationUpdate` model widened from `Decodable` to `Codable` with `topic`
+added, so it can be encoded for outgoing POSTs, not just decoded from SSE.
+
+**Claude-scaffolded (explicitly requested, boilerplate/setup syntax, not a
+learning target):** `LiveViewDataManager.sendLocationUpdate` — the actual
+`URLRequest`/`JSONEncoder`/`URLSession.shared.data(for:)` POST mechanics.
+Simplified its signature from a first draft of
+`throws -> Result<Any, any Error>` (redundant — throwing *and* returning a
+`Result` makes callers handle two error channels for one failure) to plain
+`async throws`, matching the pattern `requestMapRoute()` and
+`startStreaming()` already established in this codebase.
+
+**Design iteration on `RiderView`, guided but owner-decided:**
+1. First attempt used `.onChange(of: selectedCoordinate)` to trigger the
+   send, which doesn't compile — `CLLocationCoordinate2D` isn't
+   `Equatable`, which `onChange` requires. Rather than add a retroactive
+   `Equatable` conformance, moved the send call directly into the tap
+   handler instead, since `selectedCoordinate` only ever changes from that
+   one call site anyway. This also fixed a real behavioral gap the
+   `onChange` version would have had: tapping the same spot twice in a row
+   wouldn't have fired a second send, since `Equatable` would report no
+   change.
+2. Attempted `Task` cancellation on the tap handler (cancel any in-flight
+   send before starting a new one), mirroring Phase 5's route-request
+   pattern. Had three compile-level issues (a non-`@State` `var` that
+   resets on every view re-render since `RiderView` is a struct; a
+   shadowing `let task` inside the closure that never actually assigned to
+   `self.task`; a `Task<Void, Error>` type that didn't match
+   `sendLocationUpdate`'s non-throwing `async` signature) — but the
+   deeper issue surfaced in the Phase 8 quiz (see learning-log.md): this
+   scenario doesn't need cancellation at all, since no client-side state
+   is derived from send order the way Phase 5's `route` assignment was.
+   Removed in favor of plain fire-and-forget `Task { }` blocks.
+
+**Verified:** structurally reviewed against the Phase 7 backend
+(`http://localhost:3000/location`, later swapped to the ngrok tunnel — see
+the tooling entry below); owner confirmed a real device build/run.
+
+---
+
+## Between phases — HomeView redesign & ngrok device-testing setup
+
+Not tied to a specific phase's core concept — requested directly as
+tooling/infrastructure work, in the same spirit as the Leaflet control
+UI being handed over in Phase 2.
+
+**Claude-built, at the owner's request:**
+- **`HomeView` visual redesign** — native SwiftUI only (no custom assets):
+  icon mark, proper type scale (`.largeTitle`/`.subheadline`/`.caption`),
+  a styled topic field instead of a bare unstyled `TextField`, color-coded
+  role buttons (`.borderedProminent`/blue for Rider,
+  `.bordered`/green for Customer) disabled until a topic is entered.
+  Caught and fixed a real bug while rewriting: `NavigationStack { ... }`
+  wasn't bound to the `@State private var path`
+  (needed `NavigationStack(path: $path)`), so `path.append(...)` was
+  almost certainly a no-op — meaning Phase 6's "navigation confirmed
+  working" note likely only ever confirmed the build compiled, not that
+  tapping actually navigated. Not retroactively edited in the Phase 6
+  entry above, per this log's practice of recording history as it was
+  understood at the time; noted here instead.
+- **ngrok tunnel for real-device testing** — Mac too slow to run the
+  Simulator usably. Updated the owner's ngrok install (3.5.0 → 3.39.11;
+  the old version failed account auth outright). Centralized the two
+  scattered `http://localhost:3000` string literals in
+  `LiveViewDataManager` into a single `BackendConfig.baseURL`, now pointed
+  at the ngrok HTTPS forwarding URL — one-line swap for when the free-tier
+  URL next rotates, or back to `localhost` for Simulator use. Verified the
+  tunnel round-trips via `curl` (`GET /`, `POST /location`, and
+  `GET /location/stream`) before pointing the app at it. Added an
+  `ngrok-skip-browser-warning` header to both client requests as a
+  defensive measure against ngrok's free-tier interstitial page — tested
+  and found it wasn't actually triggering on this account/tier, so the
+  header is precautionary rather than a confirmed fix for an observed
+  problem.

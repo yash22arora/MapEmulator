@@ -362,3 +362,53 @@ alternative, in terms of the behavior your `curl` tests just exercised?
   treating the first-pass answer as complete — good instinct, consistent
   with the Phase 5 pattern of actively checking a completed fix rather
   than assuming a review comment is satisfied.
+
+---
+
+## Phase 8 — Rider client (producing into a topic)
+
+**Q:** You initially tried adding `Task` cancellation to `RiderView`'s tap
+handler — cancel any in-flight send before starting a new one — mirroring
+the pattern from Phase 5's route-fetching. After walking through it, you
+removed it and went back to plain fire-and-forget `Task { }` blocks with no
+cancellation. In your own words: why is a Rider's location POST safe to
+fire-and-forget, with no client-side ordering or cancellation logic at all,
+when Phase 5's route fetch specifically needed that protection?
+
+**Raw answer:**
+> The correct update handling happens on the server side (as it should
+> be).
+>
+> Also, a question for you - can there could still be a scenario where a
+> slow rider connection can lead to mixed up updates? Shouldn't the queue
+> ideally be a priority queue sorted over ts - highest first? Just
+> curious
+
+**Assessment / corrections:**
+- Correct on the core distinction: Phase 5 needed cancellation because the
+  *client* derived visible state directly from whichever response arrived
+  last (`self.route = route`); an out-of-order response would visibly
+  corrupt the map. A Rider's POST doesn't do that — nothing client-side
+  depends on send/completion order, because the backend's per-topic
+  conflation worker is the thing that decides which update wins.
+- The follow-up question is a genuinely sharp catch, not just curiosity:
+  `DummyQueue.getRecentItem()` returns `this.queue[this.queue.length - 1]`
+  — the last item **enqueued**, i.e. arrival order — not the item with the
+  highest `ts`. Since taps fire independent, unawaited `Task`s, a slow or
+  lossy connection really can deliver an older-`ts` update *after* a
+  newer one, and the current design would let the older one win. Arrival
+  order and event-time order are quietly being treated as the same thing,
+  and they aren't.
+- Where the proposed fix overshoots: a priority queue pays for maintaining
+  full sorted order (`O(log n)` insert) to support repeated ranked
+  extraction — but `broadCastLocation` extracts the max once and then
+  calls `queue.empty()`, nuking the whole collection every tick. Nothing
+  ever needs ranked access beyond "the single freshest item, right now."
+  A running comparison on `enqueue` (`O(1)`, keep the item only if its
+  `ts` beats the current max) gets the same correctness with less
+  machinery than what exists today, let alone a heap.
+- Parked for Phase 12: the low-network reconnect flush will fire a burst
+  of individual POSTs, which is exactly the "several updates racing the
+  server, possibly out of order" scenario this question describes —
+  turning it from a theoretical edge case into one Phase 12 will likely
+  trigger for real.

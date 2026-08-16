@@ -125,13 +125,20 @@ expansion and each new phase's ordering.
       `POST /location` and `GET /location/stream` become topic-scoped;
       endpoint renamed from `/stream` mid-phase for consistency with `POST
       /location`)
-- [ ] Phase 8 — Rider client (MapKit tap-to-select point, posts to topic)
+- [x] Phase 8 — Rider client (MapKit tap-to-select point, posts to topic)
 - [ ] Phase 9 — Customer client + Google Maps SDK swap (marker snaps, no
       lerp yet; `MKDirections` route rendered as `GMSPolyline`)
 - [ ] Phase 10 — Client-side interpolation (lerp, fixed duration, on `GMSMarker`)
 - [ ] Phase 11 — Realism upgrade (adaptive duration + bearing rotation)
 - [ ] Phase 12 — Rider offline queueing (low-network toggle, local buffer,
-      full-backlog burst-flush on reconnect)
+      full-backlog burst-flush on reconnect). Parked here from Phase 8:
+      `DummyQueue.getRecentItem()` conflates by arrival order, not by
+      `ts` — a burst-flush could deliver an older-`ts` update after a
+      newer one and let the older one win. Fix is an `O(1)` running
+      max-by-`ts` comparison on `enqueue`, not a full priority queue
+      (nothing needs ranked access beyond "the single freshest item,"
+      since the queue is fully drained every broadcast tick anyway). See
+      the Phase 8 entry in learning-log.md for the full reasoning.
 - [ ] Phase 13 — Resilience (Customer SSE reconnect/retry, backend
       per-topic disconnect handling)
 
