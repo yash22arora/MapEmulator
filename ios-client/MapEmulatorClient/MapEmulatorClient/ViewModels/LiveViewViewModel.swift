@@ -10,7 +10,7 @@ import MapKit
 @Observable
 class LiveViewViewModel {
     private(set) var riderLocation: CLLocation?
-    private(set) var homeCoordinate = CLLocation.home
+    private(set) var homeCoordinate = CLLocation.noidaHome
     private(set) var route: MKRoute?
     private var dataManager: LiveViewDataManaging
     
@@ -40,7 +40,7 @@ class LiveViewViewModel {
         
         let request = MKDirections.Request()
         request.source = MKMapItem(location: riderLocation, address: MKAddress(fullAddress: "Rider", shortAddress: nil))
-        request.destination = MKMapItem(location: .home, address: MKAddress(fullAddress: "Purva Fountain Square", shortAddress: nil))
+        request.destination = MKMapItem(location: homeCoordinate, address: MKAddress(fullAddress: "Home", shortAddress: nil))
         request.transportType = .automobile
         
         let directions = MKDirections(request: request)
@@ -65,4 +65,5 @@ class LiveViewViewModel {
 
 extension CLLocation {
     static var home = CLLocation(latitude: 12.960025715478084, longitude: 77.70524740219118)
+    static var noidaHome = CLLocation(latitude: 28.58686637508844, longitude: 77.39757657051086)
 }

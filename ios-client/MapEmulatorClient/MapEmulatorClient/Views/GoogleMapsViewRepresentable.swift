@@ -17,6 +17,11 @@ class MapCoordinator {
     var currentDisplayCoordinate: CLLocationCoordinate2D?
     var isAnimating = false
     var pendingTargetCoordinate: CLLocationCoordinate2D?
+
+    /// The last riderCoordinate we actually reacted to — guards against
+    /// re-triggering an animation when updateUIView fires for an unrelated
+    /// reason (route recomputing) with the same rider position.
+    var lastKnownTarget: CLLocationCoordinate2D?
 }
 
 struct GoogleMapsViewRepresentable: UIViewRepresentable {
@@ -48,18 +53,27 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         let coordinator = context.coordinator
 
         if let marker = coordinator.marker {
-            if coordinator.isAnimating {
-                // Let the in-flight animation finish; this becomes the next target.
-                coordinator.pendingTargetCoordinate = riderCoordinate
-            } else {
-                GoogleMapsViewRepresentable.startAnimation(
-                    to: riderCoordinate,
-                    on: route?.polyline.coordinates ?? [],
-                    marker: marker,
-                    coordinator: coordinator,
-                    uiView: uiView
-                )
+            let isNewTarget = coordinator.lastKnownTarget.map {
+                $0.latitude != riderCoordinate.latitude || $0.longitude != riderCoordinate.longitude
+            } ?? true
+
+            if isNewTarget {
+                coordinator.lastKnownTarget = riderCoordinate
+                if coordinator.isAnimating {
+                    // Let the in-flight animation finish; this becomes the next target.
+                    coordinator.pendingTargetCoordinate = riderCoordinate
+                } else {
+                    GoogleMapsViewRepresentable.startAnimation(
+                        to: riderCoordinate,
+                        on: route?.polyline.coordinates ?? [],
+                        marker: marker,
+                        coordinator: coordinator,
+                        uiView: uiView
+                    )
+                }
             }
+            // else: this call was triggered by something else changing (e.g. route
+            // recomputing) with the same rider coordinate — nothing new to animate to.
         } else {
             let marker = GMSMarker(position: riderCoordinate)
             marker.icon = UIImage(named: "car").map {
@@ -69,6 +83,7 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             marker.map = uiView
             coordinator.marker = marker
             coordinator.currentDisplayCoordinate = riderCoordinate
+            coordinator.lastKnownTarget = riderCoordinate
         }
 
         // Update route polyline on state update
