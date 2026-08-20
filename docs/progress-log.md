@@ -523,3 +523,84 @@ directly-written on request:**
 markers (correctly sized and centered), the route polyline, and live
 rider-marker snapping all confirmed working together, not just
 independently as each piece was built.
+
+---
+
+## Phase 10 — Client-side interpolation (route-snapped, CATransaction)
+
+**Scope redirect, owner-initiated:** the original phase spec called for
+hand-rolled lerp math driven by a `Timer`/`CADisplayLink`. Owner opted
+instead for `GMSMarker`'s built-in `CATransaction`-driven position
+animation (no manual interpolation math), explicitly to spend the saved
+effort on a harder, more realistic problem: making the marker follow the
+actual road geometry (including U-turns) under sparse updates, instead of
+cutting a straight line between two raw GPS points. Claude flagged the
+trade-off (writing the shortcut vs. understanding the underlying math)
+before proceeding; owner made the call deliberately, not by default.
+
+**Claude-written on explicit request** ("You write the code and give me a
+summary of what and why," given near-zero familiarity with the APIs
+involved, delivered block-by-block with reasoning per block, per owner's
+ask) — `GoogleMapsViewRepresentable.swift`:
+- `nearestPolylineIndex` — snaps a raw coordinate onto its nearest
+  polyline vertex (`CLLocation.distance(from:)`, real-world meters, not
+  naive lat/lng subtraction).
+- `subPath` — the ordered route slice between two snapped indices, with a
+  direct-line fallback if GPS noise puts the new point "behind" the old
+  one.
+- `segmentDurations` — splits the fixed total duration across a
+  multi-point path proportional to each segment's real distance, so
+  speed looks roughly constant rather than lurching on short segments.
+- `animateMarker` — chains one `CATransaction` per segment via
+  `setCompletionBlock`, since `CATransaction` only animates a single
+  position change and a multi-point path needs several in sequence.
+- `startAnimation` — orchestrator; also implements the owner's explicit
+  design choice for updates arriving mid-animation: let the current
+  chain finish, queue the newest coordinate as pending, pick it up on
+  completion (accepted trade-off: a little lag over interrupting
+  mid-flight, which would have needed `CALayer.presentation()` to read
+  the marker's true in-flight position).
+- Design correction made before writing any code: originally planned to
+  persist a raw polyline array *index* across updates, until realizing
+  Phase 5's "recompute route on every update" behavior means the
+  polyline can be a different array each time — an index into last
+  update's array means nothing against this update's. Switched to
+  persisting the marker's actual *coordinate* and re-snapping both start
+  and end onto whatever the current polyline is, every time.
+
+**Bug found and fixed, owner-reported ("overshooting... goes beyond the
+point of settlement and then drifts back"), Claude-diagnosed and fixed:**
+`updateUIView` reacts to *any* of `GoogleMapsViewRepresentable`'s
+properties changing, not specifically `riderCoordinate` — `route`
+changing (from an async `MKDirections` call resolving *after* the
+triggering rider update) also re-triggers it. With no way to distinguish
+"a genuinely new rider position" from "called again for an unrelated
+reason," a second call for the *same* `riderCoordinate` would re-snap it
+onto the newly-changed polyline and animate a small correction —
+overshoot, then drift back. Fixed with `MapCoordinator.lastKnownTarget`,
+gating the marker/animation logic on the coordinate actually having
+changed, independent of why `updateUIView` was called.
+
+**Owner-proposed follow-up, addressing the bug's root cause rather than
+just its symptom:** recompute the route via `MKDirections` only once the
+rider has drifted a real distance off the existing one (20m threshold),
+instead of on every single location update. Required moving
+`MKPolyline.coordinates` out of its original `private extension` scope
+(file-local to `GoogleMapsViewRepresentable.swift`) into a new shared
+`MKPolyline+Snapping.swift`, alongside a new `distance(to:)`, so
+`LiveViewViewModel.requestMapRoute()` could use the same route-snapping
+logic the marker animation already relied on rather than duplicating it.
+Reduces both real `MKDirections` network calls and how often the overshoot
+bug's underlying race condition can even occur.
+
+**Parked, logged in the design spec and CLAUDE.md, not built this phase:**
+erasing the traveled portion of the route polyline behind the marker
+(→ Phase 11, ties to that phase's per-segment animation progress
+tracking) and dynamic camera bounds-fitting around the home/rider markers
+and route (→ stretch goals, purely cosmetic).
+
+**Verified:** real device build/run — route-snapped animation following
+U-turns under sparse/spaced-out updates, confirmed working "most of the
+time" before the overshoot bug was found; re-verified after both the
+`lastKnownTarget` fix and the threshold-gated recompute, owner confirmed
+working.

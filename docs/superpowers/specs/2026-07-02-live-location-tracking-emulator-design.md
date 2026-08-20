@@ -140,7 +140,7 @@ unreliability.
 | 8 | Rider client | MapKit tap-to-select point, `POST /location` with topic, wired against Phase 7's backend | Producing into a named topic |
 | 9 | Customer client + Google Maps | `GMSMapView` integration (API key setup, `GMSMapView`/`GMSMarker`), SSE subscribe by topic, marker **snaps** (no lerp yet — deliberately re-surfaces the "jump" problem on the new SDK), `MKDirections`-computed route rendered as a `GMSPolyline` | New map SDK's core APIs; separating "compute a route" from "render a route" |
 | 10 | Client-side interpolation | Linear interpolation (lerp) between last and new position on the `GMSMarker`, animated over a fixed duration | Core interpolation math + animation loop, now against Google Maps' marker API |
-| 11 | Realism upgrade | Animation duration adapts to the actual gap between updates (not fixed); bearing calculated and applied to rotate the marker icon | Matching client animation timing to real update cadence; heading/bearing math |
+| 11 | Realism upgrade | Animation duration adapts to the actual gap between updates (not fixed); bearing calculated and applied to rotate the marker icon. Also carries a parked cosmetic item from Phase 10: erase the traveled portion of the route `GMSPolyline` behind the marker as it animates, rather than the polyline staying static and only snapping on route recompute — ties naturally to this phase's per-segment animation progress tracking, which bearing calculation also needs | Matching client animation timing to real update cadence; heading/bearing math |
 | 12 | Rider offline queueing | "Low-Network Mode" toggle on `RiderView`; while on, taps buffer into a local in-memory array instead of hitting the network; toggling off replays the full backlog as a rapid burst of individual `POST /location` calls. Also carries a parked fix from Phase 8: `DummyQueue` conflates by arrival order, not `ts` — a burst-flush could let an older update win over a newer one; fix is an `O(1)` running max-by-`ts` comparison on `enqueue`, not a full priority queue | Client-side offline queueing, distinct from and complementary to server-side conflation (Phase 7) |
 | 13 | Resilience | SSE reconnect/retry logic on the Customer client; backend handles per-topic client disconnects gracefully | Real-world connection handling for a long-lived stream, now in a multi-tenant context |
 
@@ -148,7 +148,11 @@ unreliability.
 the Rider UI to stress-test interpolation with frequent regular updates,
 replay buffer so a reconnecting Customer (Phase 13) can catch up via the
 queue instead of only seeing the live edge, topic list/discovery UI instead
-of free-text entry.
+of free-text entry. Parked from Phase 10: dynamic camera framing — fit the
+map's zoom/pan to a bounding box around the home marker, rider marker, and
+the route polyline (with fixed edge padding), so the visible area
+auto-adjusts as the rider moves rather than sitting at one fixed zoom
+level. Purely cosmetic, doesn't block any remaining phase.
 
 ## Working process per phase
 

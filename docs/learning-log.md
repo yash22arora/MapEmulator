@@ -447,3 +447,53 @@ seen on screen if you'd skipped the Coordinator and just done
   reference-typed piece of state SwiftUI keeps alive and hands back
   across an otherwise fully disposable, stateless sequence of struct
   values.
+
+---
+
+## Phase 10 — Client-side interpolation (route-snapped, CATransaction)
+
+**Q:** In your own words: what actually caused the overshoot-and-drift bug
+— specifically, what caused `updateUIView` to fire a second time for the
+same rider coordinate, with nothing new having actually arrived from the
+backend?
+
+**Raw answer:**
+> Not sure on this
+
+**Assessment / corrections:**
+- Genuinely subtle, full explanation given rather than a quiz correction.
+  Core mechanism: `updateUIView` doesn't fire "when `riderCoordinate`
+  changes" specifically — it fires whenever SwiftUI rebuilds the
+  `GoogleMapsViewRepresentable` value at all, for *any* reason, because
+  `CustomerView.body` reads all three of the representable's source
+  properties (`riderCoordinate`, `homeCoordinate`, `route`) off an
+  `@Observable` view model. A change to *any* of them re-runs the body and
+  produces a new representable value, which SwiftUI diffs and calls
+  `updateUIView` on — regardless of which property actually changed.
+  Sequence: rider update → `riderLocation` changes → `updateUIView` fires,
+  animation starts → separately, the async route request from that same
+  update resolves *later* → `route` changes → `updateUIView` fires again,
+  with `riderCoordinate` unchanged — but the old code had no way to
+  distinguish "called because something new happened" from "called
+  because anything changed," so it re-ran the full snap-and-animate
+  sequence for the same target, now measured against the newly-changed
+  polyline. The small mismatch between the old-polyline-snap and the
+  new-polyline-snap *is* the overshoot-and-drift.
+- General lesson, extending Phase 9's lifecycle doc: `updateUIView` tells
+  you a representable's properties *might* have changed, not *which* one
+  did. Reacting differently depending on what actually changed requires
+  tracking "the last value reacted to" yourself (`lastKnownTarget`) and
+  diffing against it — SwiftUI does not make that distinction for you.
+- Also this phase, not separately quizzed but worth recording: owner
+  redirected the phase's focus from manual lerp/Timer math (the originally
+  speced approach) to route-snapped interpolation (nearest-point-on-
+  polyline snapping, sub-path slicing, proportional per-segment
+  `CATransaction` chaining) after choosing `CATransaction`'s built-in
+  position animation over hand-rolling the interpolation math — a
+  deliberate trade so effort went into the harder, more realistic
+  "follow the road through a U-turn under sparse updates" problem instead
+  of reinventing lerp. Also added threshold-gated route recompute (only
+  refetch via `MKDirections` once the rider drifts >20m off the existing
+  route, `MKPolyline.distance(to:)`) — owner's own idea, correctly
+  identified as addressing the overshoot bug's root cause (unnecessary
+  route recomputes) rather than just its symptom.

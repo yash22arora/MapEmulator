@@ -116,9 +116,12 @@ expansion and each new phase's ordering.
 - [x] Phase 4 — iOS client, no interpolation (see the "jump" problem)
 - [x] Phase 5 — Route rendering (fixed drop point, `MKDirections` road-snapped
       polyline) — inserted 2026-07-03, see Amendments in the design spec.
-      Note: route recomputes on every rider update (owner's deliberate
-      choice, matching real ride-hailing apps), not once as originally
-      speced.
+      Note: route recomputes on rider update, not once as originally speced
+      (owner's deliberate choice, matching real ride-hailing apps) — refined
+      2026-08-19 during Phase 10 to only recompute once the rider drifts
+      >20m off the existing route (`MKPolyline.distance(to:)`,
+      `MKPolyline+Snapping.swift`), not on every single update; see the
+      Phase 10 entry in progress-log.md once logged.
 - [x] Phase 6 — App restructure (`HomeView` topic field + Rider/Customer nav,
       scaffolded `RiderView`/`CustomerView`)
 - [x] Phase 7 — Backend multi-tenancy (per-topic queue/worker/connections;
@@ -128,8 +131,17 @@ expansion and each new phase's ordering.
 - [x] Phase 8 — Rider client (MapKit tap-to-select point, posts to topic)
 - [x] Phase 9 — Customer client + Google Maps SDK swap (marker snaps, no
       lerp yet; `MKDirections` route rendered as `GMSPolyline`)
-- [ ] Phase 10 — Client-side interpolation (lerp, fixed duration, on `GMSMarker`)
-- [ ] Phase 11 — Realism upgrade (adaptive duration + bearing rotation)
+- [x] Phase 10 — Client-side interpolation — redirected from hand-rolled
+      lerp/Timer math (owner's call) to `CATransaction`-driven route-snapped
+      interpolation on `GMSMarker`: raw GPS pings snap onto the route
+      polyline and the marker animates through the actual road-following
+      sub-path between them (U-turns included), not a straight line. See
+      the Phase 10 entry in progress-log.md for the full design.
+- [ ] Phase 11 — Realism upgrade (adaptive duration + bearing rotation).
+      Parked here from Phase 10: erase the traveled portion of the route
+      `GMSPolyline` behind the marker as it animates, instead of the
+      polyline staying static — ties to this phase's per-segment animation
+      progress tracking, which bearing calculation also needs.
 - [ ] Phase 12 — Rider offline queueing (low-network toggle, local buffer,
       full-backlog burst-flush on reconnect). Parked here from Phase 8:
       `DummyQueue.getRecentItem()` conflates by arrival order, not by
@@ -143,4 +155,7 @@ expansion and each new phase's ordering.
       per-topic disconnect handling)
 
 Stretch goals (not started until core phases are done): auto-drive-a-route
-mode, replay buffer on reconnect, topic list/discovery UI.
+mode, replay buffer on reconnect, topic list/discovery UI. Parked from
+Phase 10: dynamic camera framing — fit zoom/pan to a padded bounding box
+around the home marker, rider marker, and route polyline instead of a
+fixed zoom level.
