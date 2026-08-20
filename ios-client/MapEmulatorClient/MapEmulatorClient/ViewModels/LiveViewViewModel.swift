@@ -24,10 +24,17 @@ class LiveViewViewModel {
     func startFetchingRiderLocation(topic: String) async {
         do {
             for try await update in dataManager.startStreaming(topic: topic) {
-                withAnimation(.linear(duration: 1)) {
-                    riderLocation = CLLocation(latitude: update.lat, longitude: update.lng)
-                }
-               
+                // CLLocation.timestamp carries the event's real ts (ms since epoch,
+                // as sent by both producers), not construction time — this is what
+                // lets the marker animation compute a true gap between updates
+                // instead of a local arrival-time approximation.
+                riderLocation = CLLocation(
+                    coordinate: CLLocationCoordinate2D(latitude: update.lat, longitude: update.lng),
+                    altitude: 0,
+                    horizontalAccuracy: -1,
+                    verticalAccuracy: -1,
+                    timestamp: Date(timeIntervalSince1970: update.ts / 1000)
+                )
             }
         } catch(let error) {
             print("Error in streaming: \(error)")
@@ -60,9 +67,7 @@ class LiveViewViewModel {
                 print("No route found")
                 return
             }
-            withAnimation(.linear(duration: 1)) {
-                self.route = route
-            }
+            self.route = route
         } catch {
             print("Error while fetching directions")
         }

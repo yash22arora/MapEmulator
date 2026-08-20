@@ -30,7 +30,8 @@ struct RiderView: View {
                     
                     if let coordinate = proxy.convert(screenPoint, from: .local) {
                         selectedCoordinate = coordinate
-                        let payload = LocationUpdate(topic: topic, lat: coordinate.latitude, lng: coordinate.longitude, ts: Date().timeIntervalSince1970)
+                        // ts is milliseconds since epoch, matching the Leaflet control UI's Date.now()
+                        let payload = LocationUpdate(topic: topic, lat: coordinate.latitude, lng: coordinate.longitude, ts: Date().timeIntervalSince1970 * 1000)
                         Task {
                             await viewModel.sendLocationUpdate(location: payload)
                         }
