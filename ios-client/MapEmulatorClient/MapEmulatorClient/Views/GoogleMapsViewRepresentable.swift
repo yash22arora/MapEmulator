@@ -254,16 +254,3 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         }
     }
 }
-
-private extension MKPolyline {
-    /// MKPolyline stores its points as raw MKMapPoints behind a C-style
-    /// buffer API, not a Swift array — this bridges it to one.
-    var coordinates: [CLLocationCoordinate2D] {
-        var coords = [CLLocationCoordinate2D](
-            repeating: kCLLocationCoordinate2DInvalid,
-            count: pointCount
-        )
-        getCoordinates(&coords, range: NSRange(location: 0, length: pointCount))
-        return coords
-    }
-}

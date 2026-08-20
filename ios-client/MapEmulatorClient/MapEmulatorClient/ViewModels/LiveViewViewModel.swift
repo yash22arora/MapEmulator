@@ -34,10 +34,19 @@ class LiveViewViewModel {
         }
     }
     
+    /// Only recompute the route once the rider has actually drifted this far
+    /// off the existing one — avoids an MKDirections call on every single
+    /// location update when the rider is still on the known route.
+    private static let routeRecomputeThreshold: CLLocationDistance = 20
+
     func requestMapRoute() async {
-        
+
         guard let riderLocation = riderLocation else { return }
-        
+
+        if let route, route.polyline.distance(to: riderLocation.coordinate) <= Self.routeRecomputeThreshold {
+            return
+        }
+
         let request = MKDirections.Request()
         request.source = MKMapItem(location: riderLocation, address: MKAddress(fullAddress: "Rider", shortAddress: nil))
         request.destination = MKMapItem(location: homeCoordinate, address: MKAddress(fullAddress: "Home", shortAddress: nil))
