@@ -137,11 +137,18 @@ expansion and each new phase's ordering.
       polyline and the marker animates through the actual road-following
       sub-path between them (U-turns included), not a straight line. See
       the Phase 10 entry in progress-log.md for the full design.
-- [ ] Phase 11 — Realism upgrade (adaptive duration + bearing rotation).
-      Parked here from Phase 10: erase the traveled portion of the route
-      `GMSPolyline` behind the marker as it animates, instead of the
-      polyline staying static — ties to this phase's per-segment animation
-      progress tracking, which bearing calculation also needs.
+- [x] Phase 11 — Realism upgrade: adaptive animation duration (real `ts`
+      gap between updates, clamped 0.3-3.0s, replacing Phase 10's fixed
+      1.0s), per-segment bearing rotation (great-circle formula, -90
+      correction for the car icon's east-facing art), polyline erase
+      behind the marker as it animates (the parked Phase 10 item), and
+      dynamic camera framing (`GMSCoordinateBounds` + `GMSCameraUpdate
+      .fit`, zooms in as the rider nears home, capped at zoom 17 — the
+      parked Phase 10 stretch goal, added on request once this phase's
+      per-segment machinery made it straightforward). Also fixed a real
+      `ts` unit mismatch between the two `LocationUpdate` producers
+      (seconds vs. milliseconds) that would have broken the duration math.
+      See the Phase 11 entry in progress-log.md for the full design.
 - [ ] Phase 12 — Rider offline queueing (low-network toggle, local buffer,
       full-backlog burst-flush on reconnect). Parked here from Phase 8:
       `DummyQueue.getRecentItem()` conflates by arrival order, not by
@@ -155,7 +162,6 @@ expansion and each new phase's ordering.
       per-topic disconnect handling)
 
 Stretch goals (not started until core phases are done): auto-drive-a-route
-mode, replay buffer on reconnect, topic list/discovery UI. Parked from
-Phase 10: dynamic camera framing — fit zoom/pan to a padded bounding box
-around the home marker, rider marker, and route polyline instead of a
-fixed zoom level.
+mode, replay buffer on reconnect, topic list/discovery UI. (Dynamic camera
+framing, formerly listed here as parked from Phase 10, was built in
+Phase 11 — see above.)

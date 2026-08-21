@@ -604,3 +604,63 @@ U-turns under sparse/spaced-out updates, confirmed working "most of the
 time" before the overshoot bug was found; re-verified after both the
 `lastKnownTarget` fix and the threshold-gated recompute, owner confirmed
 working.
+
+---
+
+## Phase 11 — Realism upgrade (adaptive duration, bearing, camera framing)
+
+**Bug found and fixed, Claude-caught before it could corrupt the new
+duration math:** the two `LocationUpdate` producers disagreed on `ts`
+units — `RiderView.swift` sent seconds (`Date().timeIntervalSince1970`),
+the Leaflet control UI sent milliseconds (`Date.now()`). A duration
+calculation built on `ts` diffs would have been off by 1000x depending on
+which producer sent the update. Standardized on milliseconds (matching
+the control UI, the original Phase 2 producer) before building anything
+on top of it.
+
+**Claude-written on request, block-by-block with reasoning (owner's
+established preference for this phase, continued from Phase 10), all in
+`GoogleMapsViewRepresentable.swift` unless noted:**
+- **Adaptive duration:** `LiveViewViewModel.riderLocation` now carries the
+  update's real `ts` as `CLLocation.timestamp` (full initializer, not the
+  2-arg one that defaults to construction time) — owner's explicit choice
+  to use true event-time gaps over local arrival-time approximation.
+  `CustomerView` threads the whole `CLLocation` through instead of just
+  `.coordinate`. `MapCoordinator` tracks `lastKnownTimestamp` alongside
+  `lastKnownTarget`; `startAnimation` computes the real gap between
+  consecutive timestamps and uses it as total animation duration, clamped
+  to `[0.3, 3.0]`s to guard against near-zero or very large gaps.
+  Also removed two dead `withAnimation` wrappers in `LiveViewViewModel`,
+  leftover from before the Google Maps swap and inert ever since (SwiftUI
+  animation has no effect on GMSMapView's imperative updates).
+- **Bearing rotation:** new `bearing(from:to:)`, the standard great-circle
+  forward-azimuth formula. Computed per segment inside `animateMarker`
+  (not once per update, since the sub-path can curve through a U-turn —
+  see the Phase 11 quiz), applied as `marker.rotation = heading - 90`
+  (the car PNG is authored facing east, not north), set inside the same
+  `CATransaction` as the position change so rotation animates smoothly
+  alongside movement.
+- **Polyline erase** (parked from Phase 10): `animateMarker` now also
+  takes the full route polyline and the sub-path's starting index within
+  it; as each segment completes, trims `routeOverlay.path` down to what's
+  still ahead of the marker's current position in the full route.
+
+**Owner-initiated, Claude-implemented:** dynamic camera framing (parked
+stretch goal from Phase 10) — owner asked for the "easier way" rather than
+hand-rolling bounding-box-to-zoom math; `GMSCoordinateBounds` +
+`GMSCameraUpdate.fit(_:withPadding:)` does this natively. Bounds built from
+home + current rider position + the *remaining* (not full) route ahead, so
+the view genuinely tightens as the rider approaches rather than staying
+sized to the original full route — required a new `remainingPolyline`
+helper reusing the same route-snapping index lookup the marker animation
+already does. Recomputed once per genuine new rider update (same gate as
+the marker animation), not per-segment, to avoid the camera jumping mid
+animation. Max zoom capped at 17 via `GMSMapView.setMinZoom(_:maxZoom:)`
+(owner's follow-up ask) — a single call that constrains every future
+camera operation globally, not just `.fit`.
+
+**Verified:** real device build/run — adaptive duration (visibly different
+animation speed for rapid taps vs. a large gap), per-segment bearing
+rotation through a turn, polyline erasing behind the marker, and camera
+zooming in as the rider approaches (capped at 17) all confirmed working
+together.

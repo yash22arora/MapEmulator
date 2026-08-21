@@ -497,3 +497,35 @@ backend?
   route, `MKPolyline.distance(to:)`) — owner's own idea, correctly
   identified as addressing the overshoot bug's root cause (unnecessary
   route recomputes) rather than just its symptom.
+
+---
+
+## Phase 11 — Realism upgrade (adaptive duration, bearing, camera framing)
+
+**Q:** Bearing is computed *per segment* of the animated sub-path (inside
+`animateMarker`'s loop), not once for the whole rider update using just the
+start and end coordinates. Why does that matter specifically for the
+U-turn scenario Phase 10 was built around — what would the marker visibly
+look like during a turn if bearing were computed only once, from the
+update's start point straight to its end point?
+
+**Raw answer:**
+> One rider update can have non-linear segments - like a u-turn or just a
+> curvy road. Bearing is computed per segment to always make sure the
+> marker image (car) is facing in the direction of the road it is on and
+> doesn't look like its drifting apart.
+
+**Assessment / corrections:**
+- Correct, and the right mechanism identified: a single update's path can
+  span multiple segments with genuinely different directions, so one
+  bearing value can't represent all of them.
+- Sharper picture worth having: if bearing were computed once from the
+  sub-path's raw start-to-end straight line, the marker would lock into
+  that fixed rotation for the *entire* multi-segment animation — even as
+  its actual position correctly curves through the turn (Phase 10's
+  route-snapping). During the sharpest part of a U-turn you'd see the car
+  visibly moving sideways or backwards relative to which way it's facing,
+  worst exactly where the road curves most — the same U-turn case that
+  motivated Phase 10's redirect in the first place. Position and
+  orientation are two independent things the marker needs to get right
+  per segment, not just one.
