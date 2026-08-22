@@ -5,6 +5,7 @@ interface ITopicChannel<T> {
   topic: string;
   queue: DummyQueue<T>;
   connections: Set<Response>;
+  lastBroadcastedItem: T | null;
   addConnection: (conn: Response) => void;
   removeConnection: (conn: Response) => void;
   start: () => void;
@@ -15,6 +16,7 @@ export class TopicChannel<T> implements ITopicChannel<T> {
   topic: string;
   queue: DummyQueue<T>;
   connections: Set<Response>;
+  lastBroadcastedItem: T | null;
   private started: boolean = false;
   private intervalId: NodeJS.Timeout | null = null;
 
@@ -22,10 +24,14 @@ export class TopicChannel<T> implements ITopicChannel<T> {
     this.topic = topic;
     this.queue = queue;
     this.connections = connections;
+    this.lastBroadcastedItem = null;
   }
 
   addConnection(conn: Response) {
     this.connections.add(conn);
+    if (this.lastBroadcastedItem) {
+      conn.write(`data: ${JSON.stringify(this.lastBroadcastedItem)}\n\n`);
+    }
   }
 
   removeConnection(conn: Response) {
@@ -42,6 +48,7 @@ export class TopicChannel<T> implements ITopicChannel<T> {
     this.intervalId = setInterval(() => {
       const recentItem = this.queue.getRecentItem();
       if (recentItem) {
+        this.lastBroadcastedItem = recentItem;
         this.connections.forEach((conn) => {
           conn.write(`data: ${JSON.stringify(recentItem)}\n\n`);
         });
