@@ -11,13 +11,18 @@
   </head>
   <body>
     <h1>Map Emulator control UI</h1>
-    <div style="position: absolute; z-index: 1000; margin: 10px">
+    <div style="display: flex; align-items: center; gap: 20px; padding: 10px">
       <label>
         Topic:
         <input id="topic" type="text" placeholder="e.g. order-1234" />
       </label>
+      <label>
+        <input id="lowNetworkToggle" type="checkbox" />
+        Low-Network Mode
+      </label>
+      <span id="queueStatus"></span>
     </div>
-    <div id="map" style="height: 100vh; width: 100vw"></div>
+    <div id="map" style="height: calc(100vh - 56px); width: 100vw"></div>
 
     <script>
       const map = L.map("map").setView([28.587, 77.397], 16.5); // Bangalore
@@ -26,7 +31,88 @@
       }).addTo(map);
 
       const topicInput = document.getElementById("topic");
+      const lowNetworkToggle = document.getElementById("lowNetworkToggle");
+      const queueStatus = document.getElementById("queueStatus");
       let marker;
+      let queuedUpdates = [];
+
+      function updateQueueStatus() {
+        queueStatus.textContent = queuedUpdates.length
+          ? `(${queuedUpdates.length} queued)`
+          : "";
+      }
+
+      async function postLocation(payload) {
+        const response = await fetch("/location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Server responded ${response.status}`);
+        }
+      }
+
+      // Manual override (checkbox) skips the network entirely, for a
+      // reliable demo. A real send failure -- network error, timeout, bad
+      // response -- buffers the point too, even with the checkbox off,
+      // since that's the actual real-world signal an app can trust.
+      async function sendUpdate(payload) {
+        if (lowNetworkToggle.checked) {
+          queuedUpdates.push(payload);
+          updateQueueStatus();
+          return;
+        }
+
+        try {
+          await postLocation(payload);
+          // A send just succeeded -- the backend is reachable again, which
+          // "online" wouldn't have told us if the server process itself
+          // was what came back, not the network interface. Try the backlog.
+          flushQueuedUpdates();
+        } catch (error) {
+          console.warn("Send failed, queueing for retry:", error);
+          queuedUpdates.push(payload);
+          updateQueueStatus();
+        }
+      }
+
+      // Flushes the entire backlog as individual POSTs (not conflated here
+      // client-side), so the backend's own conflation gets exercised by a
+      // real burst. If a send in the middle of the backlog fails again,
+      // that item and everything after it goes back in the queue rather
+      // than being silently dropped.
+      async function flushQueuedUpdates() {
+        if (queuedUpdates.length === 0) return;
+
+        const backlog = queuedUpdates;
+        queuedUpdates = [];
+        updateQueueStatus();
+
+        for (let i = 0; i < backlog.length; i++) {
+          try {
+            await postLocation(backlog[i]);
+          } catch (error) {
+            console.warn("Flush failed, re-queueing remainder:", error);
+            queuedUpdates = backlog.slice(i).concat(queuedUpdates);
+            updateQueueStatus();
+            return;
+          }
+        }
+      }
+
+      lowNetworkToggle.addEventListener("change", () => {
+        if (!lowNetworkToggle.checked) {
+          flushQueuedUpdates();
+        }
+      });
+
+      // Browser connectivity signal -- unreliable on its own (see chat), so
+      // it's only used as a hint to retry, never to gate whether a send is
+      // attempted in the first place.
+      window.addEventListener("online", () => {
+        flushQueuedUpdates();
+      });
 
       map.on("click", (e) => {
         const topic = topicInput.value.trim();
@@ -44,11 +130,7 @@
           marker = L.marker(e.latlng).addTo(map);
         }
 
-        fetch("/location", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic, lat, lng, ts }),
-        });
+        sendUpdate({ topic, lat, lng, ts });
       });
     </script>
   </body>
