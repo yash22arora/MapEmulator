@@ -1,22 +1,24 @@
 import { DummyQueue } from "./queue";
 import { Response } from "express";
 
-interface ITopicChannel<T> {
+interface ITopicChannel<T extends { ts: number }> {
   topic: string;
-  queue: DummyQueue<T>;
   connections: Set<Response>;
-  lastBroadcastedItem: T | null;
+  lastEmittedItem: T | null;
   addConnection: (conn: Response) => void;
   removeConnection: (conn: Response) => void;
+  pushEvent: (item: T) => void;
   start: () => void;
   stop: () => void;
 }
 
-export class TopicChannel<T> implements ITopicChannel<T> {
+export class TopicChannel<
+  T extends { ts: number },
+> implements ITopicChannel<T> {
   topic: string;
-  queue: DummyQueue<T>;
+  private queue: DummyQueue<T>;
   connections: Set<Response>;
-  lastBroadcastedItem: T | null;
+  lastEmittedItem: T | null;
   private started: boolean = false;
   private intervalId: NodeJS.Timeout | null = null;
 
@@ -24,18 +26,22 @@ export class TopicChannel<T> implements ITopicChannel<T> {
     this.topic = topic;
     this.queue = queue;
     this.connections = connections;
-    this.lastBroadcastedItem = null;
+    this.lastEmittedItem = null;
   }
 
   addConnection(conn: Response) {
     this.connections.add(conn);
-    if (this.lastBroadcastedItem) {
-      conn.write(`data: ${JSON.stringify(this.lastBroadcastedItem)}\n\n`);
+    if (this.lastEmittedItem) {
+      conn.write(`data: ${JSON.stringify(this.lastEmittedItem)}\n\n`);
     }
   }
 
   removeConnection(conn: Response) {
     this.connections.delete(conn);
+  }
+
+  pushEvent(item: T) {
+    this.queue.enqueue(item);
   }
 
   start() {
@@ -48,18 +54,11 @@ export class TopicChannel<T> implements ITopicChannel<T> {
     this.intervalId = setInterval(() => {
       const recentItem = this.queue.getRecentItem();
       if (recentItem) {
-        this.lastBroadcastedItem = recentItem;
+        this.lastEmittedItem = recentItem;
         this.connections.forEach((conn) => {
           conn.write(`data: ${JSON.stringify(recentItem)}\n\n`);
         });
-        console.log(
-          `Topic: ${this.topic}`,
-          "Dropped:",
-          this.queue.getQueueSize() - 1,
-          "\t",
-          "Broadcasted:",
-          recentItem,
-        );
+        console.log(`Topic: ${this.topic}`, "\t", "Broadcasted:", recentItem);
         this.queue.empty();
       }
     }, 1000); // Broadcast every second

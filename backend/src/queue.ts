@@ -1,26 +1,16 @@
-class DummyQueue<T> {
-  private MAX_QUEUE_SIZE = 100;
-  private queue: T[] = [];
+class DummyQueue<T extends { ts: number }> {
+  private lastItem: T | null = null;
   enqueue = (item: T) => {
-    if (this.queue.length >= this.MAX_QUEUE_SIZE) {
-      this.queue.shift(); // Remove the oldest item
+    if (!this.lastItem || item.ts > this.lastItem.ts) {
+      // timestamp check to ignore older items arriving late due to network issues
+      this.lastItem = item;
     }
-    this.queue.push(item);
   };
   empty = () => {
-    this.queue = [];
-  };
-  getQueueSize = () => {
-    return this.queue.length;
+    this.lastItem = null;
   };
   getRecentItem = () => {
-    return this.queue[this.queue.length - 1];
+    return this.lastItem;
   };
-
-  constructor(maxQueueSize?: number) {
-    if (maxQueueSize) {
-      this.MAX_QUEUE_SIZE = maxQueueSize;
-    }
-  }
 }
 export { DummyQueue };

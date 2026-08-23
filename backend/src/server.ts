@@ -47,7 +47,7 @@ app.post(
     }
     const locationData: LocationUpdate = { topic, lat, lng, ts };
     let topicChannel = getOrCreateTopicChannel(topic);
-    topicChannel.queue.enqueue(locationData);
+    topicChannel.pushEvent(locationData);
 
     res.status(200).send("Location data sent to clients.");
   },
