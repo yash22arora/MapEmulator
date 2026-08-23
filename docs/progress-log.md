@@ -664,3 +664,59 @@ animation speed for rapid taps vs. a large gap), per-segment bearing
 rotation through a turn, polyline erasing behind the marker, and camera
 zooming in as the rider approaches (capped at 17) all confirmed working
 together.
+
+---
+
+## Phase 12 — Rider offline queueing (real failure detection)
+
+**Scope redirect, owner-initiated:** originally speced as a "Low-Network
+Mode" toggle on the iOS `RiderView`. Owner asked for it on the Leaflet
+control UI instead — easier to demo/test without an Xcode rebuild each
+cycle. Also explicitly pushed back on a purely manual toggle as "too
+straightforward" and asked how real apps detect low network, before any
+implementation started.
+
+**Design discussion before writing anything:** owner asked to combine a
+manual override with real detection rather than pick one. Landed on:
+`navigator.onLine`/`online`/`offline` events (or `NWPathMonitor` on iOS)
+only measure network-*interface* reachability, not "can I reach my
+specific backend" — a technically-connected device can still fail every
+request to a down/unreachable server. Real apps detect degraded
+connectivity from actual request failures (timeout, network error,
+non-2xx), using interface-level signals only as a hint to retry sooner,
+never as the primary gate. Backend also fixed re: parked Phase 8 item and
+tested together this phase — see the entry above this one.
+
+**Claude-implemented in `backend/public/index.html`, owner-directed:**
+- Controls bar restructured from the old floating overlay into a normal
+  flex row above the map — topic input, a "Low-Network Mode" checkbox, a
+  live queued-count indicator.
+- `sendUpdate`: checkbox on → buffer directly, skip the network. Checkbox
+  off → attempt a real `fetch`; a genuine failure (not just the checkbox)
+  buffers the point too — the actual correctness mechanism, not the
+  manual override.
+- `flushQueuedUpdates`: replays the **entire** backlog as individual
+  POSTs (not conflated client-side), matching the original design
+  decision so the backend's real conflation/max-`ts` logic gets exercised
+  by an actual burst, not a client-side pre-filtered one. A failure
+  partway through re-queues the unsent remainder rather than dropping it.
+- Three flush triggers: checkbox toggled off, browser `online` event
+  (best-effort hint only), and — added after a bug found during testing,
+  see below — any subsequent send actually succeeding.
+
+**Bug found during owner's own testing, Claude-diagnosed:** killing and
+restarting the local backend process, then confirming recovery via a new
+map click — the new click succeeded, but the *previously queued* backlog
+stayed stuck, un-flushed. Root cause: killing a process doesn't touch the
+OS network interface, so `navigator.onLine` stayed `true` throughout and
+the `online` event never fired — there was no interface-level
+offline→online transition to detect, even though the backend-specific
+outage was real. Fixed by treating any successful send as evidence the
+backend is reachable again and triggering a flush attempt right after —
+directly matches the actual scenario (a real request succeeding) rather
+than relying on a signal that was never going to fire for this failure
+mode.
+
+**Verified:** owner tested end-to-end — checkbox buffering and flush-on-
+uncheck, a real backend kill/restart cycle (after the fix) correctly
+flushing the stuck backlog on the next successful send.

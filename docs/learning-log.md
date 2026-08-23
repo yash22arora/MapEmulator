@@ -529,3 +529,36 @@ update's start point straight to its end point?
   motivated Phase 10's redirect in the first place. Position and
   orientation are two independent things the marker needs to get right
   per segment, not just one.
+
+---
+
+## Phase 12 — Rider offline queueing (real failure detection)
+
+**Q:** In your own words — why didn't the `online` event fire when you
+restarted the backend server, even though real requests to it started
+succeeding again right after? What's the fundamental difference between
+what `navigator.onLine`/the `online` event actually measures, versus what
+your app actually needed to know?
+
+**Raw answer:**
+> the "online" event is associated with the browser, not the backend
+> server. We cant know if the backend is up online until we get a 2XX on
+> hitting the endpoint. What `navigator.onLine` or `online` event
+> measures is if the current client device is connected to some active
+> network iterface, not if the server is reachable. Its an unreliable
+> hint that can be used to retry
+
+**Assessment / corrections:**
+- Fully correct, no corrections needed — precisely stated, including
+  landing on the same design conclusion the code implements (unreliable
+  hint for retry timing, never a gate on whether to attempt a send).
+- One extra layer of precision worth having, since it makes the signal
+  even weaker than it sounds: `navigator.onLine` isn't really "connected
+  to *a* network" — per spec it only goes `false` when the browser is
+  certain there's no way to reach *any* network at all. It stays `true`
+  even connected to a router with no actual internet uplink, or a network
+  that can carry packets but can't reach anything useful. So it's not
+  just measuring the wrong thing (interface vs. specific server) — it's a
+  permissive best-effort guess even at the narrower thing it claims to
+  measure. Which is exactly why only a real request's success/failure is
+  trustworthy, and everything else is at best a hint to retry sooner.

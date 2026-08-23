@@ -149,15 +149,24 @@ expansion and each new phase's ordering.
       `ts` unit mismatch between the two `LocationUpdate` producers
       (seconds vs. milliseconds) that would have broken the duration math.
       See the Phase 11 entry in progress-log.md for the full design.
-- [ ] Phase 12 — Rider offline queueing (low-network toggle, local buffer,
-      full-backlog burst-flush on reconnect). Parked here from Phase 8:
-      `DummyQueue.getRecentItem()` conflates by arrival order, not by
-      `ts` — a burst-flush could deliver an older-`ts` update after a
-      newer one and let the older one win. Fix is an `O(1)` running
-      max-by-`ts` comparison on `enqueue`, not a full priority queue
-      (nothing needs ranked access beyond "the single freshest item,"
-      since the queue is fully drained every broadcast tick anyway). See
-      the Phase 8 entry in learning-log.md for the full reasoning.
+- [x] Phase 12 — Rider offline queueing. Redirected from the originally
+      speced iOS `RiderView` to the Leaflet control UI (owner's choice,
+      easier to test without an Xcode rebuild cycle). "Low-Network Mode"
+      checkbox as a manual override, combined with real `fetch`-failure
+      detection as the actual correctness mechanism (`navigator.onLine`
+      only reflects network-interface state, not backend reachability —
+      see the Phase 12 entry in learning-log.md). Full backlog flushed as
+      individual POSTs (not conflated client-side) on checkbox-off, a
+      real `online` event, or — added after a bug found in testing — any
+      subsequent send succeeding, since killing/restarting a local server
+      process never fires `online` at all. Closed the parked Phase 8 item
+      as part of this phase: `DummyQueue<T extends { ts: number }>` now
+      keeps only the max-`ts` item on `enqueue` instead of the
+      last-enqueued one, and `TopicChannel.addConnection` replays
+      `lastEmittedItem` to newly-joining consumers immediately (a related
+      gap found during this phase's design discussion, not originally
+      planned). See the Phase 12 entry in progress-log.md for the full
+      design.
 - [ ] Phase 13 — Resilience (Customer SSE reconnect/retry, backend
       per-topic disconnect handling)
 
