@@ -47,7 +47,7 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         // Home Marker
         let homeMarker = GMSMarker(position: homeCoordinate)
         homeMarker.icon = UIImage(named: "home").map {
-            GoogleMapsViewRepresentable.resizedImage($0, to: CGSize(width: 50, height: 50))
+            GoogleMapsViewRepresentable.resizedImage($0, to: CGSize(width: 30, height: 30))
         }
         homeMarker.groundAnchor = CGPoint(x: 0.5, y: 0.5)
         homeMarker.map = uiView
@@ -91,13 +91,6 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
                 coordinator.lastKnownTarget = riderCoordinate
                 coordinator.lastKnownTimestamp = riderLocation.timestamp
 
-                GoogleMapsViewRepresentable.fitCamera(
-                    uiView,
-                    home: homeCoordinate,
-                    rider: riderCoordinate,
-                    remainingPolyline: GoogleMapsViewRepresentable.remainingPolyline(from: riderCoordinate, on: polylineCoordinates)
-                )
-
                 if coordinator.isAnimating {
                     // Let the in-flight animation finish; this becomes the next target.
                     coordinator.pendingTargetCoordinate = riderCoordinate
@@ -110,6 +103,7 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
                         on: polylineCoordinates,
                         marker: marker,
                         routeOverlay: coordinator.polyline,
+                        home: homeCoordinate,
                         coordinator: coordinator,
                         uiView: uiView
                     )
@@ -339,12 +333,14 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         on polylineCoordinates: [CLLocationCoordinate2D],
         marker: GMSMarker,
         routeOverlay: GMSPolyline?,
+        home: CLLocationCoordinate2D,
         coordinator: MapCoordinator,
         uiView: GMSMapView
     ) {
         guard !polylineCoordinates.isEmpty else {
             marker.position = targetCoordinate
             coordinator.currentDisplayCoordinate = targetCoordinate
+            fitCamera(uiView, home: home, rider: targetCoordinate, remainingPolyline: polylineCoordinates)
             return
         }
 
@@ -356,6 +352,12 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         guard path.count > 1 else {
             marker.position = targetCoordinate
             coordinator.currentDisplayCoordinate = targetCoordinate
+            fitCamera(
+                uiView,
+                home: home,
+                rider: targetCoordinate,
+                remainingPolyline: remainingPolyline(from: targetCoordinate, on: polylineCoordinates)
+            )
             return
         }
 
@@ -375,6 +377,17 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             coordinator.isAnimating = false
             coordinator.currentDisplayCoordinate = targetCoordinate
 
+            // Only re-fit the camera once the marker has actually arrived,
+            // not the instant the update arrived — otherwise the bounds jump
+            // ahead of the marker while it's still mid-animation, clipping
+            // it out of view until it catches up.
+            fitCamera(
+                uiView,
+                home: home,
+                rider: targetCoordinate,
+                remainingPolyline: remainingPolyline(from: targetCoordinate, on: polylineCoordinates)
+            )
+
             if let pending = coordinator.pendingTargetCoordinate,
                let pendingTimestamp = coordinator.pendingTargetTimestamp {
                 coordinator.pendingTargetCoordinate = nil
@@ -386,6 +399,7 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
                     on: polylineCoordinates,
                     marker: marker,
                     routeOverlay: routeOverlay,
+                    home: home,
                     coordinator: coordinator,
                     uiView: uiView
                 )
