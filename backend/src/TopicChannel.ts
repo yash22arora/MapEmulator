@@ -30,14 +30,34 @@ export class TopicChannel<
   }
 
   addConnection(conn: Response) {
+    // Response is a writable stream -- it can emit 'error' at any time
+    // (e.g. ECONNRESET if the client force-quits), and an unhandled
+    // 'error' event crashes the whole Node process, not just this request.
+    conn.on("error", (error) => {
+      console.error(`Connection error on topic ${this.topic}, removing:`, error);
+      this.removeConnection(conn);
+    });
+
     this.connections.add(conn);
     if (this.lastEmittedItem) {
-      conn.write(`data: ${JSON.stringify(this.lastEmittedItem)}\n\n`);
+      this.writeToConnection(conn, this.lastEmittedItem);
     }
   }
 
   removeConnection(conn: Response) {
     this.connections.delete(conn);
+    if (this.connections.size === 0) {
+      this.stop();
+    }
+  }
+
+  private writeToConnection(conn: Response, item: T) {
+    try {
+      conn.write(`data: ${JSON.stringify(item)}\n\n`);
+    } catch (error) {
+      console.error(`Failed to write to a connection on topic ${this.topic}, removing it:`, error);
+      this.removeConnection(conn);
+    }
   }
 
   pushEvent(item: T) {
@@ -56,7 +76,7 @@ export class TopicChannel<
       if (recentItem) {
         this.lastEmittedItem = recentItem;
         this.connections.forEach((conn) => {
-          conn.write(`data: ${JSON.stringify(recentItem)}\n\n`);
+          this.writeToConnection(conn, recentItem);
         });
         console.log(`Topic: ${this.topic}`, "\t", "Broadcasted:", recentItem);
         this.queue.empty();

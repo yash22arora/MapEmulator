@@ -167,8 +167,16 @@ expansion and each new phase's ordering.
       gap found during this phase's design discussion, not originally
       planned). See the Phase 12 entry in progress-log.md for the full
       design.
-- [ ] Phase 13 — Resilience (Customer SSE reconnect/retry, backend
-      per-topic disconnect handling)
+- [ ] Phase 13 — Resilience (Customer SSE reconnect/retry, exponential
+      backoff capped at 4 attempts; backend per-topic disconnect handling).
+      Retry loop needs a seam for Phase 14: a distinguishable "terminal,
+      don't retry" signal it already checks for, even though nothing
+      throws it yet.
+- [ ] Phase 14 — Delivery completion (mark an order "Done"; backend
+      broadcasts a distinct SSE `event: completed`, not a plain `data:`
+      message, since Phase 13 makes plain connection closure ambiguous
+      between "reconnect" and "finished"; Customer's parser recognizes it
+      and stops with no retry via Phase 13's seam)
 
 Stretch goals (not started until core phases are done): auto-drive-a-route
 mode, replay buffer on reconnect, topic list/discovery UI. (Dynamic camera

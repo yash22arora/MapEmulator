@@ -29,9 +29,6 @@ app.get("/location/stream", (req: Request, res: Response) => {
   // Clean up when the client disconnects
   req.on("close", () => {
     topicChannel.removeConnection(res);
-    if (topicChannel.connections.size === 0) {
-      topicChannel.stop();
-    }
     res.end();
   });
 });
