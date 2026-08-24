@@ -44,6 +44,11 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         // arbitrarily far) — applies to every camera move, not just fit.
         uiView.setMinZoom(uiView.minZoom, maxZoom: 17)
 
+        // Camera is fully programmatic (fitCamera) -- manual gestures would
+        // just fight it, snapping back on the next update.
+        uiView.settings.scrollGestures = false
+        uiView.settings.zoomGestures = false
+
         // Home Marker
         let homeMarker = GMSMarker(position: homeCoordinate)
         homeMarker.icon = UIImage(named: "home").map {
