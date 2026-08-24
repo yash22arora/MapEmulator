@@ -562,3 +562,35 @@ your app actually needed to know?
   permissive best-effort guess even at the narrower thing it claims to
   measure. Which is exactly why only a real request's success/failure is
   trustworthy, and everything else is at best a hint to retry sooner.
+
+---
+
+## Phase 13 — Resilience (SSE reconnect/retry)
+
+**Q:** In your own words — why didn't your original version actually
+retry up to `retryLimit` times, even though it *looked* like it was
+checking a retry count against a limit? What was structurally missing
+that made it behave as "try once, then try exactly one more time,"
+regardless of what `retryLimit` was set to?
+
+**Raw answer:**
+> The request + read logic was repeated in the catch block but it was
+> not wrapped in any do/ catch block further, so any error occurring in
+> the catch block would have exited the parent catch block
+
+**Assessment / corrections:**
+- Partially correct, and worth separating a real consequence from the
+  actual root cause. The missing inner `do`/`catch` on the retry attempt
+  is real — that's specifically why a *failed* retry would escape
+  uncaught and silently hang the stream (`continuation.finish()` never
+  called, the `Task`'s error never observed) rather than fail cleanly.
+- But that's not why retries were capped at 1 regardless of
+  `retryLimit`'s value. Even with that inner `do`/`catch` added, the code
+  would still only ever reach exactly 2 total attempts (1 initial + 1
+  retry) — because there was no loop construct anywhere. No `while`, no
+  recursion, nothing that goes back and tries again. The structure was
+  linear: attempt once, catch once, attempt-again once inline, done —
+  identical behavior whether `retryLimit` was `3` or `300`, since nothing
+  in the code ever actually *read* that value to decide whether to keep
+  going. `while true` isn't just cleaner than the duplicated version —
+  it's what makes `retryLimit` mean anything at all.

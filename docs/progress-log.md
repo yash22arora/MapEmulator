@@ -720,3 +720,82 @@ mode.
 **Verified:** owner tested end-to-end — checkbox buffering and flush-on-
 uncheck, a real backend kill/restart cycle (after the fix) correctly
 flushing the stuck backlog on the next successful send.
+
+---
+
+## Phase 13 — Resilience (SSE reconnect/retry)
+
+**Owner-written and applied directly, matching a design proposed during
+review:** backend graceful disconnect handling in `TopicChannel.ts` —
+`addConnection` attaches `conn.on("error", ...)` immediately (a `Response`
+is a writable stream that can emit `'error'` at any time — e.g. ECONNRESET
+on a force-quit client — and an unhandled `'error'` event crashes the
+whole Node process, not just that request); new private `writeToConnection`
+wraps every `conn.write(...)` in try/catch so one bad connection failing
+mid-broadcast doesn't stop the rest from receiving it; `removeConnection`
+now centralizes the "stop the worker once `connections.size === 0`" check
+(moved in from `server.ts`), so it fires consistently regardless of which
+path triggered the removal — an explicit client disconnect, or an
+error-triggered removal from inside the class itself, which the old
+`server.ts`-only version would have missed entirely. Type-checked clean,
+owner-verified the process survives a forced abrupt disconnect (force-quit
+client / `Ctrl-C` on a `curl -N` subscriber) instead of crashing.
+
+**Owner-written first pass, Claude-reviewed and restructured, iOS
+`LiveViewDataManager.startStreaming`:** exponential backoff (base ×
+`2^n`), capped retry count (settled on 4, matching the owner's explicit
+spec), a `StreamCompletedIntentionally` marker type left as an explicit,
+currently-unused seam for Phase 14's completion signal.
+
+**Bugs found in the first pass, all structural, not caught until
+Claude's review (see the Phase 13 quiz entry in learning-log.md for the
+owner's own diagnosis of the root cause afterward):**
+1. **No actual loop** — the connect+read logic was duplicated once into
+   the `catch` block rather than wrapped in a real `while`/recursive
+   structure. Retries were capped at exactly 1 regardless of
+   `retryLimit`'s value, since nothing in the code ever read that value
+   to decide whether to keep going.
+2. **Retry attempt's own errors were uncaught** — the duplicated block
+   inside `catch` had no inner `do`/`catch`, so a failing retry would
+   propagate out of the `Task` closure uncaught. Since nothing observes
+   that `Task`'s result, the error was silently swallowed and
+   `continuation.finish()` never called — the stream would hang forever
+   instead of failing or recovering.
+3. **A successful retry's outcome got discarded** — even if the retry
+   succeeded and streamed real data for a while, execution fell through
+   to an unconditional `continuation.finish(throwing: error)` using the
+   *original* first-attempt error once that inner reading loop ended.
+4. **Graceful stream end wasn't retried** — only a thrown error
+   triggered the retry path; a clean server-side close (no throw) was
+   treated as permanent success, contradicting the design decision from
+   the same phase's earlier discussion that a clean close and a network
+   error should both mean "reconnect."
+5. **Backoff was quadratic (`n²`), not exponential (`2^n`)** as
+   specified.
+
+Rewritten as a genuine `while true` loop wrapping the whole connect+read
+attempt once, with retry-count/backoff logic inside a single `catch`.
+Also added, beyond the original ask: `Task.isCancelled`/`CancellationError`
+checked before the retry path, so tearing down the view (navigating away)
+short-circuits cleanly instead of racing a pointless retry-with-backoff
+against teardown.
+
+**Cosmetic bug found during testing, Claude-diagnosed and fixed:**
+`GoogleMapsViewRepresentable`'s dynamic camera framing (Phase 11) fit the
+camera the instant a new rider coordinate arrived, using the coordinate
+the marker was still animating *toward* — so the bounds would jump ahead
+of the marker mid-animation, clipping it out of view until it caught up.
+Fixed by moving the `fitCamera` calls to fire once the marker has actually
+arrived (`startAnimation`'s completion, plus the two no-animation snap
+fallback paths) rather than when the update first arrives. Deliberately
+did *not* sync the camera to the marker's position on every animation
+segment (the other option raised) — that would mean a second camera
+animation competing with the marker's own per-segment `CATransaction`,
+risking jitter rather than smoothness, for no real benefit over "wait
+until settled."
+
+**Verified:** owner tested end-to-end — retry loop across a real
+backend kill/restart (5 total connection attempts: 1 initial + 4 retries,
+exponential backoff visible), backend surviving an abrupt client
+disconnect without crashing, and the camera no longer clipping the
+marker mid-animation.

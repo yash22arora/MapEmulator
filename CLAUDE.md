@@ -167,11 +167,21 @@ expansion and each new phase's ordering.
       gap found during this phase's design discussion, not originally
       planned). See the Phase 12 entry in progress-log.md for the full
       design.
-- [ ] Phase 13 — Resilience (Customer SSE reconnect/retry, exponential
-      backoff capped at 4 attempts; backend per-topic disconnect handling).
-      Retry loop needs a seam for Phase 14: a distinguishable "terminal,
-      don't retry" signal it already checks for, even though nothing
-      throws it yet.
+- [x] Phase 13 — Resilience. Customer SSE reconnect: `while true` loop
+      around connect+read in `startStreaming` (first pass was structurally
+      broken — duplicated code, not an actual loop, capped real retries at
+      1 regardless of `retryLimit`'s value; see the Phase 13 entries in
+      learning-log.md/progress-log.md), exponential backoff (`2^n`),
+      capped at 4 retries, cancellation short-circuits the retry path,
+      `StreamCompletedIntentionally` left as the seam for Phase 14. Backend
+      per-topic disconnect handling: `'error'` listener on every
+      connection, guarded broadcast writes via `writeToConnection`,
+      `removeConnection` centralizing the stop-when-empty check regardless
+      of which path triggered it. Also fixed a cosmetic bug found in
+      testing: dynamic camera framing (Phase 11) was fitting to the
+      not-yet-reached target the instant an update arrived, clipping the
+      marker mid-animation — moved to fire once the marker actually
+      settles.
 - [ ] Phase 14 — Delivery completion (mark an order "Done"; backend
       broadcasts a distinct SSE `event: completed`, not a plain `data:`
       message, since Phase 13 makes plain connection closure ambiguous
