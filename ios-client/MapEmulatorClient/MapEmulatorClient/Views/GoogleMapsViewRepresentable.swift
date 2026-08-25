@@ -49,6 +49,14 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         uiView.settings.scrollGestures = false
         uiView.settings.zoomGestures = false
 
+        // Translucent halo around home -- radius is real-world meters,
+        // strokeWidth is screen points (matches the "2pt border" ask).
+        let homeCircle = GMSCircle(position: homeCoordinate, radius: 50)
+        homeCircle.fillColor = UIColor.systemGreen.withAlphaComponent(0.15)
+        homeCircle.strokeColor = UIColor.systemGreen.withAlphaComponent(0.6)
+        homeCircle.strokeWidth = 2
+        homeCircle.map = uiView
+
         // Home Marker
         let homeMarker = GMSMarker(position: homeCoordinate)
         homeMarker.icon = UIImage(named: "home").map {
@@ -56,7 +64,7 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         }
         homeMarker.groundAnchor = CGPoint(x: 0.5, y: 0.5)
         homeMarker.map = uiView
-        
+
         return uiView
     }
     

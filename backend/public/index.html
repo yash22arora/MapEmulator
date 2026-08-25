@@ -239,9 +239,27 @@
       let marker;
       let queuedUpdates = [];
 
-      // TODO (Phase 14): call an endpoint that marks the topic's order
-      // delivered and broadcasts the "event: completed" SSE signal.
-      markDeliveredButton.addEventListener("click", () => {});
+      markDeliveredButton.addEventListener("click", async () => {
+        const topic = topicInput.value.trim();
+        if (!topic) {
+          alert("Enter a topic before marking as delivered.");
+          return;
+        }
+
+        try {
+          const response = await fetch("/location/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ topic }),
+          });
+          if (!response.ok) {
+            throw new Error(`Server responded ${response.status}`);
+          }
+        } catch (error) {
+          console.error("Failed to mark as delivered:", error);
+          alert("Failed to mark as delivered. See console for details.");
+        }
+      });
 
       function updateQueueStatus() {
         queueStatus.textContent = queuedUpdates.length

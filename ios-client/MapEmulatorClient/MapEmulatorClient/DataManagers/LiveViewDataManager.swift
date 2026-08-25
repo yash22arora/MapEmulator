@@ -12,21 +12,27 @@ enum BackendConfig {
     static let baseURL = "https://9f45-2401-4900-8813-1c3f-39d1-9a43-446-b583.ngrok-free.app"
 }
 
+enum EventType: String {
+    case location
+    case completed
+}
+
 struct StreamCompletedIntentionally: Error {}
 
 protocol LiveViewDataManaging {
-    func startStreaming(topic: String) -> AsyncThrowingStream<LocationUpdate, Error>
+    func startStreaming(topic: String, onComplete: @escaping () -> Void) -> AsyncThrowingStream<LocationUpdate, Error>
     func sendLocationUpdate(payload: LocationUpdate) async throws
 }
 
 class LiveViewDataManager: LiveViewDataManaging {
-    func startStreaming(topic: String) -> AsyncThrowingStream<LocationUpdate, Error> {
+    func startStreaming(topic: String, onComplete: @escaping () -> Void) -> AsyncThrowingStream<LocationUpdate, Error> {
         let retryLimit = 4
         let baseBackoffNanoseconds: UInt64 = 500_000_000
 
         return AsyncThrowingStream { continuation in
             Task {
                 var currentRetryCount = 0
+                var lastEventName: String = ""
 
                 while true {
                     do {
@@ -61,10 +67,17 @@ class LiveViewDataManager: LiveViewDataManaging {
                         currentRetryCount = 0
 
                         for try await line in bytes.lines {
-                            // TODO: Phase 14 - recognize "event: completed" and
-                            // throw StreamCompletedIntentionally() here.
+                            
+                            if line.hasPrefix("event: ") {
+                                let eventName = line.trimmingPrefix("event: ")
+                                lastEventName = eventName.lowercased()
+                            }
 
                             if line.hasPrefix("data: ") {
+                                if lastEventName == EventType.completed.rawValue {
+                                    lastEventName = ""
+                                    throw StreamCompletedIntentionally()
+                                }
                                 let payload = line.trimmingPrefix("data: ")
                                 let decoder = JSONDecoder()
                                 let update = try decoder.decode(LocationUpdate.self, from: Data(payload.utf8))
@@ -78,6 +91,7 @@ class LiveViewDataManager: LiveViewDataManaging {
                     } catch {
                         if error is StreamCompletedIntentionally {
                             continuation.finish() // Deliberate ending of stream by server - Marked as delivered etc.
+                            onComplete()
                             return
                         }
 

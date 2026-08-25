@@ -23,7 +23,7 @@ struct CustomerView: View {
             GoogleMapsViewRepresentable(riderLocation: viewModel.riderLocation, homeCoordinate: viewModel.homeCoordinate.coordinate, route: viewModel.route)
                 .ignoresSafeArea()
 
-            DeliveryStatusCard(etaMinutes: etaMinutes)
+            DeliveryStatusCard(status: viewModel.status, etaMinutes: etaMinutes)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
         }
@@ -59,9 +59,42 @@ struct CustomerView: View {
 /// visual only; there's no rider identity or instructions backend in this
 /// emulator, so they're not wired to anything.
 private struct DeliveryStatusCard: View {
+    let status: StatusType
     let etaMinutes: Int?
 
     var body: some View {
+        Group {
+            if status == .delivered {
+                deliveredContent
+            } else {
+                inProgressContent
+            }
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+        .animation(.default, value: status)
+    }
+
+    private var deliveredContent: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 34))
+                .foregroundStyle(.green)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Order Delivered")
+                    .font(.title3.bold())
+                Text("Enjoy your order!")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var inProgressContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -111,9 +144,6 @@ private struct DeliveryStatusCard: View {
                 }
             }
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
-        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
     }
 }
 

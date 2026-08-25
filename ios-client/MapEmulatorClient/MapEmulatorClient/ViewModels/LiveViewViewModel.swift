@@ -7,12 +7,21 @@
 import SwiftUI
 import MapKit
 
+enum StatusType: Equatable {
+    case pendingConfirmation
+    case restaurantPreparingOrder
+    case riderReachingRestaurant
+    case riderPickedOrder
+    case delivered
+}
+
 @Observable
 class LiveViewViewModel {
     private(set) var riderLocation: CLLocation?
     private(set) var homeCoordinate = CLLocation.noidaHome
     private(set) var route: MKRoute?
     private var dataManager: LiveViewDataManaging
+    private(set) var status: StatusType = .riderPickedOrder
     
     init(currentLocation: LocationUpdate? = nil, dataManager: LiveViewDataManaging = LiveViewDataManager()) {
         if let currentLocation {
@@ -23,7 +32,9 @@ class LiveViewViewModel {
     
     func startFetchingRiderLocation(topic: String) async {
         do {
-            for try await update in dataManager.startStreaming(topic: topic) {
+            for try await update in dataManager.startStreaming(topic: topic, onComplete: {
+                self.status = .delivered
+            }) {
                 // CLLocation.timestamp carries the event's real ts (ms since epoch,
                 // as sent by both producers), not construction time — this is what
                 // lets the marker animation compute a true gap between updates
