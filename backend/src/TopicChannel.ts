@@ -10,6 +10,7 @@ interface ITopicChannel<T extends { ts: number }> {
   pushEvent: (item: T) => void;
   start: () => void;
   stop: () => void;
+  markAsCompleted: () => void;
 }
 
 export class TopicChannel<
@@ -21,6 +22,9 @@ export class TopicChannel<
   lastEmittedItem: T | null;
   private started: boolean = false;
   private intervalId: NodeJS.Timeout | null = null;
+  private isCompleted: boolean = false;
+
+  private COMPLETED_FRAME = "event: completed\ndata: {}\n\n";
 
   constructor(topic: string, queue: DummyQueue<T>, connections: Set<Response>) {
     this.topic = topic;
@@ -34,12 +38,17 @@ export class TopicChannel<
     // (e.g. ECONNRESET if the client force-quits), and an unhandled
     // 'error' event crashes the whole Node process, not just this request.
     conn.on("error", (error) => {
-      console.error(`Connection error on topic ${this.topic}, removing:`, error);
+      console.error(
+        `Connection error on topic ${this.topic}, removing:`,
+        error,
+      );
       this.removeConnection(conn);
     });
 
     this.connections.add(conn);
-    if (this.lastEmittedItem) {
+    if (this.isCompleted) {
+      this.writeRaw(conn, this.COMPLETED_FRAME);
+    } else if (this.lastEmittedItem) {
       this.writeToConnection(conn, this.lastEmittedItem);
     }
   }
@@ -52,16 +61,37 @@ export class TopicChannel<
   }
 
   private writeToConnection(conn: Response, item: T) {
+    const frame = `data: ${JSON.stringify(item)}\n\n`;
+    this.writeRaw(conn, frame);
+  }
+
+  private writeRaw(conn: Response, frame: string) {
     try {
-      conn.write(`data: ${JSON.stringify(item)}\n\n`);
+      conn.write(frame);
     } catch (error) {
-      console.error(`Failed to write to a connection on topic ${this.topic}, removing it:`, error);
+      console.error(
+        `Failed to write raw frame to a connection on topic ${this.topic}, removing it:`,
+        error,
+      );
       this.removeConnection(conn);
     }
   }
 
   pushEvent(item: T) {
+    if (this.isCompleted) {
+      return;
+    } // Ignore new events if the topic is marked as completed
     this.queue.enqueue(item);
+  }
+
+  markAsCompleted() {
+    this.isCompleted = true;
+    this.queue.empty(); // Clear the queue since no more events will be sent
+    this.connections.forEach((conn) => {
+      this.writeRaw(conn, this.COMPLETED_FRAME);
+      conn.end(); // Close the connection after sending the completed frame
+    });
+    this.stop(); // Stop broadcasting since the topic is completed
   }
 
   start() {

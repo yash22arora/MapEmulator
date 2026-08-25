@@ -50,6 +50,22 @@ app.post(
   },
 );
 
+app.post(
+  "/location/complete",
+  express.json(),
+  (req: Request<{}, {}, { topic: string }>, res: Response) => {
+    const { topic } = req.body;
+    if (!topic) {
+      res.status(400).send("Missing required field: topic.");
+      return;
+    }
+    let topicChannel = getOrCreateTopicChannel(topic);
+    topicChannel.markAsCompleted();
+
+    res.status(200).send("Marked as completed and notified all clients.");
+  },
+);
+
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
 });
