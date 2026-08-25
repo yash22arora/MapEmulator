@@ -799,3 +799,106 @@ backend kill/restart (5 total connection attempts: 1 initial + 4 retries,
 exponential backoff visible), backend surviving an abrupt client
 disconnect without crashing, and the camera no longer clipping the
 marker mid-animation.
+
+---
+
+## Between phases — Rider emulator & Customer UI polish
+
+Owner-directed, Claude-implemented (visual/tooling work, same precedent
+as earlier control-UI polish) — not tied to a specific phase's core
+concept, done ahead of Phase 14 using a real delivery-app screenshot as
+reference.
+
+- **`backend/public/index.html`** rebranded "Rider Emulator": dark
+  toolbar with a wordmark + live-status dot, topic input restyled
+  monospace/tool-like, low-network checkbox restyled as a sliding toggle
+  switch (same underlying `<input type="checkbox">`, purely visual via
+  sibling `:checked` selectors), more vertical toolbar padding, layout
+  switched from a fragile `calc(100vh - Npx)` height to a proper flexbox
+  column so the map always fills whatever space the toolbar doesn't take.
+  A "Mark as Delivered" button added as a UI stub (wired to the real
+  endpoint once Phase 14 built it — see below).
+- **`CustomerView.swift`**: full-bleed map behind a translucent nav bar
+  (`.toolbarBackground(.ultraThinMaterial, ...)`, map extended to
+  `.ignoresSafeArea()` on all edges so there's real content behind the
+  bar to blur), a bottom `DeliveryStatusCard` overlay with a real
+  `MKRoute.expectedTravelTime`-derived ETA (rider avatar/call
+  button/delivery-instructions row are explicitly visual-only — no rider
+  identity or instructions backend exists), manual map pan/zoom disabled
+  (`GMSMapView.settings`, since the camera is fully programmatic via
+  `fitCamera` and would otherwise fight user gestures), trailing ellipsis
+  toolbar stub.
+- Fixed `fitCamera`'s call-timing bug while doing this pass (see the
+  Phase 13 entry above) and disabled manual gestures in the same file for
+  the same underlying reason: the camera is meant to be entirely
+  system-driven now.
+
+---
+
+## Phase 14 — Delivery completion
+
+**Owner-written, Claude-reviewed (two rounds), `backend/src/TopicChannel.ts`
++ `server.ts`:** new `POST /location/complete` (topic-only body, correctly
+typed `Request<{}, {}, { topic: string }>` after a first pass mistakenly
+used the full `LocationUpdate` type). `TopicChannel.markAsCompleted()`:
+sets `isCompleted` (blocks further `pushEvent` calls), broadcasts a
+`COMPLETED_FRAME` (`event: completed\ndata: {}\n\n`) via a generalized
+`writeRaw` helper (lets `writeToConnection`'s existing safe-write pattern
+serve both plain `data:` frames and named-event frames), and —
+after a first pass missed this — proactively calls `conn.end()` on every
+connection and `this.stop()` immediately, rather than leaving the
+broadcast interval running indefinitely and relying on clients to
+disconnect on their own once they process the signal. `addConnection` now
+checks `isCompleted` before falling back to the Phase 12 `lastEmittedItem`
+replay, so a client connecting to an already-completed topic (e.g.
+reopening tracking after delivery) sees the completed signal immediately
+instead of a stale live-tracking view.
+
+**Owner-written, Claude-reviewed (two rounds), iOS
+`LiveViewDataManager.swift`:** the SSE parser now tracks a
+`lastEventName` across loop iterations — necessary because a named-event
+frame (`event: completed` then `data: {}` on the *next* line) splits
+across two separate iterations of `for try await line in bytes.lines`,
+and the decision about how to handle the `data:` line depends on a line
+that already scrolled by. When the pending event is `completed`, throws
+`StreamCompletedIntentionally()` instead of attempting to decode a
+`LocationUpdate` — using the seam Phase 13 built specifically for this.
+
+**Bugs found across the two review rounds, both owner-fixed:**
+1. First pass trimmed the wrong prefix off the `event:` line
+  (`trimmingPrefix("data: ")`, copy-pasted from the adjacent `data:`
+  handling and not adjusted) — `"event: completed"` doesn't start with
+  `"data: "`, so the trim was a no-op, `lastEventName` never matched
+  `"completed"`, and the subsequent `data: {}` line fell through to a
+  normal `LocationUpdate` decode attempt, which threw a real decoding
+  error (missing required fields) — caught by the retry path, not the
+  `StreamCompletedIntentionally` path. Net effect: the server saying "the
+  order is done" was being interpreted by the client as "something went
+  wrong, reconnect" — the exact inversion of the intended behavior.
+2. `markAsCompleted()`'s first pass never called `stop()` or closed the
+  connections it wrote to — see the Phase 14 quiz entry in
+  learning-log.md for the full reasoning on why the server can't rely on
+  client cooperation for this.
+3. `@escaping` compiler error on `onComplete: () -> Void` — the closure
+  is captured inside `Task { }`, which runs asynchronously well after
+  `startStreaming` returns; Swift's default assumption for a closure
+  parameter is non-escaping (synchronous use only), so a closure that
+  genuinely outlives the call needs `@escaping` stated explicitly, in
+  both the protocol and the concrete implementation.
+
+**Claude-implemented on request:** `DeliveryStatusCard` now switches
+between the existing in-progress layout and a "Order Delivered" state
+based on `viewModel.status` (new `@Observable` property on
+`LiveViewViewModel`, flipped to `.delivered` from the `onComplete`
+closure), animated via `.animation(.default, value: status)` — which
+required adding `Equatable` conformance to `StatusType`, since it hadn't
+declared it and `.animation(value:)` requires it. Map stays visible
+underneath either way, per explicit instruction. A `GMSCircle` halo (50m
+real-world radius, 2pt screen-point stroke) added around the home marker.
+The Rider emulator's "Mark as Delivered" button (UI-only stub from the
+polish pass above) wired to actually `POST /location/complete`.
+
+**Verified:** owner tested end-to-end — clicking "Mark as Delivered"
+correctly flips the Customer's status card to the delivered state with no
+further retries, both fixed bugs (event-prefix parsing, missing
+stop/close) confirmed working after their respective fixes.

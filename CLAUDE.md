@@ -182,11 +182,18 @@ expansion and each new phase's ordering.
       not-yet-reached target the instant an update arrived, clipping the
       marker mid-animation — moved to fire once the marker actually
       settles.
-- [ ] Phase 14 — Delivery completion (mark an order "Done"; backend
-      broadcasts a distinct SSE `event: completed`, not a plain `data:`
-      message, since Phase 13 makes plain connection closure ambiguous
-      between "reconnect" and "finished"; Customer's parser recognizes it
-      and stops with no retry via Phase 13's seam)
+- [x] Phase 14 — Delivery completion. `POST /location/complete` →
+      `TopicChannel.markAsCompleted()`: broadcasts `event: completed`,
+      blocks further `pushEvent`, proactively ends every connection and
+      stops the interval rather than trusting clients to disconnect on
+      their own (see the Phase 14 quiz entry in learning-log.md), late
+      joiners get the completed signal instead of a stale live-tracking
+      replay. iOS parser tracks `event:` lines across loop iterations to
+      correctly route the following `data:` line, using Phase 13's
+      `StreamCompletedIntentionally` seam. Rider emulator's "Mark as
+      Delivered" button and Customer's status card (delivered state,
+      home-marker halo) wired up — see the Phase 14 entry in
+      progress-log.md for the two review rounds' worth of bugs found.
 
 Stretch goals (not started until core phases are done): auto-drive-a-route
 mode, replay buffer on reconnect, topic list/discovery UI. (Dynamic camera

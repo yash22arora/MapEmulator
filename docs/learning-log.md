@@ -594,3 +594,44 @@ regardless of what `retryLimit` was set to?
   in the code ever actually *read* that value to decide whether to keep
   going. `while true` isn't just cleaner than the duplicated version —
   it's what makes `retryLimit` mean anything at all.
+
+---
+
+## Phase 14 — Delivery completion
+
+**Q:** `markAsCompleted()` does three things: sets `isCompleted` (blocking
+further `pushEvent` calls), broadcasts the `completed` event, and
+proactively calls `conn.end()` on every connection rather than just
+trusting the client to disconnect on its own once it processes that
+event. Why does the *server* need to independently enforce "this topic is
+done," instead of relying on well-behaved clients to notice the signal and
+hang up?
+
+**Raw answer:**
+> Unless the clients drop the connection, the server will keep
+> maintaining the list of connections and keeps the time interval loop
+> running indefinitely - basically wasting resources.
+>
+> So, the server itself removes the connections once marked as completed
+> and this empties the list of connections and this further calls the
+> `stop()` method that cleans up the time interval
+
+**Assessment / corrections:**
+- Correct on the mechanical consequence (resource waste if the server
+  waits on the client), but this describes *what happens* without quite
+  landing on *why the server can't wait in the first place*.
+- The deeper reason: the server can't assume every client is well-behaved.
+  A live example from earlier in this exact phase — the
+  `trimmingPrefix("data: ")` bug on the `event:` line meant the client
+  would never have recognized `completed` at all, and would have kept
+  retrying indefinitely. If the server's cleanup depended on "the client
+  will notice and hang up," that one client-side bug would have meant the
+  connection, the interval, and the `connections` entry never got cleaned
+  up for as long as that client kept running.
+- General principle worth carrying forward: never make your own
+  correctness or resource cleanup depend on a remote party's cooperation
+  when you can enforce it locally instead. The server owns the fact that
+  the topic is done — it shouldn't need a well-formed, bug-free,
+  currently-responsive client to also agree before it's willing to clean
+  up after itself. `conn.end()` + `stop()` make that deterministic
+  regardless of what any particular client does or fails to do.
