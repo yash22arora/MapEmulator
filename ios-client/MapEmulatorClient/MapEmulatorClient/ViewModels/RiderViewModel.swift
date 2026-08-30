@@ -22,4 +22,21 @@ final class RiderViewModel {
             print("Error while sending location: \(error)")
         }
     }
+
+    /// Returns whether the update actually succeeded, so the caller only
+    /// advances its local "current stage" guess once the backend has
+    /// confirmed it — same reasoning as the admin dashboard's
+    /// advanceToStatus, which only updates its button state after the
+    /// fetch resolves ok.
+    @discardableResult
+    func sendStatusUpdate(topic: String, status: StatusType) async -> Bool {
+        do {
+            try await dataManager.sendStatusUpdate(topic: topic, status: status)
+            return true
+        }
+        catch(let error) {
+            print("Error while sending status update: \(error)")
+            return false
+        }
+    }
 }

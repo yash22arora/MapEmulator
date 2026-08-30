@@ -10,12 +10,26 @@ import MapKit
 /// String-backed and Codable because these values now arrive over the
 /// wire (event: status frames) -- the raw values must match the backend's
 /// StatusType union exactly, case for case.
-enum StatusType: String, Codable, Equatable {
+enum StatusType: String, Codable, Equatable, CaseIterable {
     case pendingConfirmation
     case restaurantPreparingOrder
     case riderReachingRestaurant
     case riderPickedOrder
     case delivered
+}
+
+extension StatusType {
+    /// Short label for the Rider app's status button bar — mirrors the
+    /// admin dashboard's STATUS_LABELS.
+    var shortLabel: String {
+        switch self {
+        case .pendingConfirmation: return "Order Placed"
+        case .restaurantPreparingOrder: return "Confirm Order"
+        case .riderReachingRestaurant: return "Rider → Restaurant"
+        case .riderPickedOrder: return "Picked Up"
+        case .delivered: return "Delivered"
+        }
+    }
 }
 
 @Observable

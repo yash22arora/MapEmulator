@@ -38,6 +38,12 @@ struct StreamCompletedIntentionally: Error {}
 protocol LiveViewDataManaging {
     func startStreaming(topic: String) -> AsyncThrowingStream<StreamEvent, Error>
     func sendLocationUpdate(payload: LocationUpdate) async throws
+    func sendStatusUpdate(topic: String, status: StatusType) async throws
+}
+
+private struct StatusUpdatePayload: Encodable {
+    let topic: String
+    let status: StatusType
 }
 
 class LiveViewDataManager: LiveViewDataManaging {
@@ -151,6 +157,27 @@ class LiveViewDataManager: LiveViewDataManaging {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
         request.httpBody = try JSONEncoder().encode(payload)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    /// Mirrors the admin dashboard's `POST /location/status` — lets the
+    /// Rider app drive the same order-lifecycle status the web control
+    /// panel does.
+    func sendStatusUpdate(topic: String, status: StatusType) async throws {
+        guard let endpointURL = URL(string: "\(BackendConfig.baseURL)/location/status") else {
+            throw URLError(.badURL)
+        }
+
+        var request = URLRequest(url: endpointURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
+        request.httpBody = try JSONEncoder().encode(StatusUpdatePayload(topic: topic, status: status))
 
         let (_, response) = try await URLSession.shared.data(for: request)
 
