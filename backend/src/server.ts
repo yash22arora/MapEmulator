@@ -1,10 +1,18 @@
 import express, { Request, Response } from "express";
-import type { LocationUpdate } from "./types";
+import type { LocationUpdate, StatusType } from "./types";
 import { OutgoingHttpHeaders } from "node:http";
 import { DummyQueue } from "./queue";
 import { getOrCreateTopicChannel } from "./services";
 const app = express();
 const PORT = 3000;
+
+const VALID_STATUSES: StatusType[] = [
+  "pendingConfirmation",
+  "restaurantPreparingOrder",
+  "riderReachingRestaurant",
+  "riderPickedOrder",
+  "delivered",
+];
 
 app.use(express.static("public"));
 
@@ -51,18 +59,28 @@ app.post(
 );
 
 app.post(
-  "/location/complete",
+  "/location/status",
   express.json(),
-  (req: Request<{}, {}, { topic: string }>, res: Response) => {
-    const { topic } = req.body;
+  (
+    req: Request<{}, {}, { topic: string; status: StatusType }>,
+    res: Response,
+  ) => {
+    const { topic, status } = req.body;
     if (!topic) {
       res.status(400).send("Missing required field: topic.");
       return;
     }
-    let topicChannel = getOrCreateTopicChannel(topic);
-    topicChannel.markAsCompleted();
+    if (!status || !VALID_STATUSES.includes(status)) {
+      res
+        .status(400)
+        .send(`Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`);
+      return;
+    }
 
-    res.status(200).send("Marked as completed and notified all clients.");
+    let topicChannel = getOrCreateTopicChannel(topic);
+    topicChannel.updateStatus(status);
+
+    res.status(200).send(`Topic ${topic} status updated to ${status}.`);
   },
 );
 

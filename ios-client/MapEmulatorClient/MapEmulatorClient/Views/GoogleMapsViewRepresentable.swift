@@ -13,6 +13,9 @@ import UIKit
 class MapCoordinator {
     var marker: GMSMarker?
     var polyline: GMSPolyline?
+    /// The decorative curved line shown before a rider exists (no route to
+    /// snap to yet) -- hidden the moment the real rider marker appears.
+    var preDispatchLine: GMSPolyline?
 
     var currentDisplayCoordinate: CLLocationCoordinate2D?
     var isAnimating = false
@@ -31,8 +34,10 @@ class MapCoordinator {
 struct GoogleMapsViewRepresentable: UIViewRepresentable {
     let riderLocation: CLLocation?
     let homeCoordinate: CLLocationCoordinate2D
+    let restaurantCoordinate: CLLocationCoordinate2D
+    let status: StatusType
     let route: MKRoute?
-    
+
     /// Called once when MapsView is constructed
     func makeUIView(context: Context) -> GMSMapView {
         let mapID = GMSMapID(identifier: "120581de6cb7eed0e8d4fc7b")
@@ -51,7 +56,7 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
 
         // Translucent halo around home -- radius is real-world meters,
         // strokeWidth is screen points (matches the "2pt border" ask).
-        let homeCircle = GMSCircle(position: homeCoordinate, radius: 50)
+        let homeCircle = GMSCircle(position: homeCoordinate, radius: 100)
         homeCircle.fillColor = UIColor.systemGreen.withAlphaComponent(0.15)
         homeCircle.strokeColor = UIColor.systemGreen.withAlphaComponent(0.6)
         homeCircle.strokeWidth = 2
@@ -59,24 +64,76 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
 
         // Home Marker
         let homeMarker = GMSMarker(position: homeCoordinate)
-        homeMarker.icon = UIImage(named: "home").map {
-            GoogleMapsViewRepresentable.resizedImage($0, to: CGSize(width: 30, height: 30))
+        homeMarker.icon = UIImage(named: "home-marker").map {
+            GoogleMapsViewRepresentable.resizedImage($0, to: CGSize(width: 50, height: 50))
         }
-        homeMarker.groundAnchor = CGPoint(x: 0.5, y: 0.5)
+        homeMarker.groundAnchor = CGPoint(x: 0.5, y: 0.8)
         homeMarker.map = uiView
+
+        // Restaurant Marker, with a small name label below the icon
+        let restaurantMarker = GMSMarker(position: restaurantCoordinate)
+        if let foodIcon = UIImage(named: "food-marker") {
+            let resizedIcon = GoogleMapsViewRepresentable.resizedImage(foodIcon, to: CGSize(width: 50, height: 50))
+            let labeled = GoogleMapsViewRepresentable.labeledMarkerImage(
+                icon: resizedIcon,
+                label: "Pizza Bakery",
+                iconGroundAnchor: CGPoint(x: 0.5, y: 0.8)
+            )
+            restaurantMarker.icon = labeled.image
+            restaurantMarker.groundAnchor = labeled.groundAnchor
+        }
+        restaurantMarker.map = uiView
+
+        // Decorative curved line connecting restaurant to home, shown only
+        // before a rider (and therefore a real road-snapped route) exists.
+        // NOTE: this is a solid line, not dotted -- Google Maps' dashed-
+        // polyline styling needs verifying against the actual SDK docs
+        // rather than guessed at, so it's deliberately simplified for now.
+        let curvePath = GoogleMapsViewRepresentable.curvedPath(from: restaurantCoordinate, to: homeCoordinate)
+        let preDispatchLine = GMSPolyline(path: curvePath)
+        preDispatchLine.strokeColor = UIColor.systemGray.withAlphaComponent(0.7)
+        preDispatchLine.strokeWidth = 2
+        preDispatchLine.map = uiView
+        context.coordinator.preDispatchLine = preDispatchLine
 
         return uiView
     }
-    
+
     /// Called at every state change - need to handle changes manually
     func updateUIView(_ uiView: GMSMapView, context: Context) {
-        guard let riderLocation else { return }
+        guard let riderLocation else {
+            // No rider yet -- frame home+restaurant together. Doing this
+            // here rather than in makeUIView because the map view still has
+            // a .zero frame at construction time (SwiftUI hasn't laid it
+            // out yet), and GMSCoordinateBounds.fit needs real bounds to
+            // compute a meaningful zoom/center. updateUIView fires again
+            // once layout has happened, so the fit lands correctly then.
+            GoogleMapsViewRepresentable.fitCamera(
+                uiView,
+                home: homeCoordinate,
+                restaurant: restaurantCoordinate,
+                rider: nil,
+                showAllMarkers: true,
+                remainingPolyline: []
+            )
+            return
+        }
         let coordinator = context.coordinator
         let riderCoordinate = riderLocation.coordinate
         let polylineCoordinates = route?.polyline.coordinates ?? []
+        // Show all three markers until the rider is actually out for
+        // delivery -- only then does the frame narrow to rider+home and
+        // the decorative restaurant line stop being relevant.
+        let showAllMarkers = status != .riderPickedOrder
+        if status == .riderPickedOrder {
+            coordinator.preDispatchLine?.map = nil
+        }
 
         // Sync the route polyline first, so it's already current by the time
-        // any animation below reads coordinator.polyline.
+        // any animation below reads coordinator.polyline. Once `route` goes
+        // back to nil (delivery complete -- see LiveViewViewModel), remove
+        // whatever polyline was left on the map instead of leaving it stuck
+        // at its last-drawn path.
         if let route {
             let path = GMSMutablePath()
             for coordinate in polylineCoordinates {
@@ -92,6 +149,9 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
                 polyline.map = uiView
                 coordinator.polyline = polyline
             }
+        } else if let existingPolyline = coordinator.polyline {
+            existingPolyline.map = nil
+            coordinator.polyline = nil
         }
 
         if let marker = coordinator.marker {
@@ -117,6 +177,8 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
                         marker: marker,
                         routeOverlay: coordinator.polyline,
                         home: homeCoordinate,
+                        restaurant: restaurantCoordinate,
+                        showAllMarkers: showAllMarkers,
                         coordinator: coordinator,
                         uiView: uiView
                     )
@@ -126,8 +188,8 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             // recomputing) with the same rider coordinate — nothing new to animate to.
         } else {
             let marker = GMSMarker(position: riderCoordinate)
-            marker.icon = UIImage(named: "car").map {
-                GoogleMapsViewRepresentable.resizedImage($0, to: CGSize(width: 50, height: 40))
+            marker.icon = UIImage(named: "rider-marker").map {
+                GoogleMapsViewRepresentable.resizedImage($0, to: CGSize(width: 60, height: 60))
             }
             marker.groundAnchor = CGPoint(x: 0.5, y: 0.5)
             marker.map = uiView
@@ -139,7 +201,9 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             GoogleMapsViewRepresentable.fitCamera(
                 uiView,
                 home: homeCoordinate,
+                restaurant: restaurantCoordinate,
                 rider: riderCoordinate,
+                showAllMarkers: showAllMarkers,
                 remainingPolyline: polylineCoordinates
             )
         }
@@ -164,24 +228,74 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         }
     }
 
+    /// Composites a small pill-shaped text label under a marker icon into a
+    /// single image (GMSMarker has no separate "caption" API), and returns
+    /// the groundAnchor that keeps the icon's own tip -- not the taller
+    /// combined image -- pinned to the coordinate, same as before the label
+    /// was added.
+    private static func labeledMarkerImage(
+        icon: UIImage,
+        label: String,
+        iconGroundAnchor: CGPoint
+    ) -> (image: UIImage, groundAnchor: CGPoint) {
+        let font = UIFont.systemFont(ofSize: 11, weight: .semibold)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.black]
+        let textSize = (label as NSString).size(withAttributes: attributes)
+
+        let horizontalPadding: CGFloat = 6
+        let verticalPadding: CGFloat = 3
+        let spacing: CGFloat = 2
+        let badgeSize = CGSize(width: textSize.width + horizontalPadding * 2, height: textSize.height + verticalPadding * 2)
+        let totalSize = CGSize(width: max(icon.size.width, badgeSize.width), height: icon.size.height + spacing + badgeSize.height)
+
+        let image = UIGraphicsImageRenderer(size: totalSize).image { _ in
+            let iconOrigin = CGPoint(x: (totalSize.width - icon.size.width) / 2, y: 0)
+            icon.draw(in: CGRect(origin: iconOrigin, size: icon.size))
+
+            let badgeOrigin = CGPoint(x: (totalSize.width - badgeSize.width) / 2, y: icon.size.height + spacing)
+            let badgeRect = CGRect(origin: badgeOrigin, size: badgeSize)
+            UIColor.white.withAlphaComponent(0.95).setFill()
+            UIBezierPath(roundedRect: badgeRect, cornerRadius: badgeSize.height / 2).fill()
+
+            let textOrigin = CGPoint(x: badgeOrigin.x + horizontalPadding, y: badgeOrigin.y + verticalPadding)
+            (label as NSString).draw(at: textOrigin, withAttributes: attributes)
+        }
+
+        let anchorY = (icon.size.height * iconGroundAnchor.y) / totalSize.height
+        return (image, CGPoint(x: 0.5, y: anchorY))
+    }
+
     // MARK: - Dynamic camera framing
 
-    private static let cameraFitPadding: CGFloat = 80
+    // Bottom is significantly larger than the other edges -- the status
+    // card overlays the bottom of the screen and was sometimes covering
+    // a marker with the old uniform padding.
+    private static let cameraFitInsets = UIEdgeInsets(top: 140, left: 60, bottom: 280, right: 60)
 
-    /// Fits the camera to a bounding box around home, the rider, and
-    /// whatever route remains ahead — shrinks (zooms in) as the rider
-    /// approaches, since `remainingPolyline` shrinks too.
+    /// Fits the camera to a bounding box around home, the rider (if one
+    /// exists yet), and whatever route remains ahead. `showAllMarkers`
+    /// additionally includes the restaurant -- true for every status
+    /// except "out for delivery" (riderPickedOrder), where the restaurant
+    /// is no longer relevant and the frame narrows to rider+home instead.
     private static func fitCamera(
         _ uiView: GMSMapView,
         home: CLLocationCoordinate2D,
-        rider: CLLocationCoordinate2D,
+        restaurant: CLLocationCoordinate2D,
+        rider: CLLocationCoordinate2D?,
+        showAllMarkers: Bool,
         remainingPolyline: [CLLocationCoordinate2D]
     ) {
-        var bounds = GMSCoordinateBounds(coordinate: home, coordinate: rider)
+        var bounds = GMSCoordinateBounds(coordinate: home, coordinate: home)
+        if showAllMarkers {
+            bounds = bounds.includingCoordinate(restaurant)
+        }
+        if let rider {
+            bounds = bounds.includingCoordinate(rider)
+        }
         for coordinate in remainingPolyline {
             bounds = bounds.includingCoordinate(coordinate)
         }
-        uiView.animate(with: .fit(bounds, withPadding: cameraFitPadding))
+        uiView.animate(with: .fit(bounds, with: cameraFitInsets))
     }
 
     /// The portion of the route from `coordinate`'s nearest snapped point
@@ -194,6 +308,40 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             return polylineCoordinates
         }
         return Array(polylineCoordinates[index...])
+    }
+
+    /// Quadratic-Bezier-sampled path between two points, bowed out
+    /// perpendicular to the straight line between them -- purely
+    /// decorative, not a real route (there's no rider to snap a route to
+    /// yet at the point this is shown).
+    private static func curvedPath(
+        from start: CLLocationCoordinate2D,
+        to end: CLLocationCoordinate2D,
+        segments: Int = 24
+    ) -> GMSMutablePath {
+        let path = GMSMutablePath()
+
+        let midLat = (start.latitude + end.latitude) / 2
+        let midLng = (start.longitude + end.longitude) / 2
+        let deltaLat = end.latitude - start.latitude
+        let deltaLng = end.longitude - start.longitude
+        let bowFactor = 0.15
+        let controlLat = midLat - deltaLng * bowFactor
+        let controlLng = midLng + deltaLat * bowFactor
+
+        for i in 0...segments {
+            let t = Double(i) / Double(segments)
+            let oneMinusT = 1 - t
+            let lat = oneMinusT * oneMinusT * start.latitude
+                + 2 * oneMinusT * t * controlLat
+                + t * t * end.latitude
+            let lng = oneMinusT * oneMinusT * start.longitude
+                + 2 * oneMinusT * t * controlLng
+                + t * t * end.longitude
+            path.add(CLLocationCoordinate2D(latitude: lat, longitude: lng))
+        }
+
+        return path
     }
 
     // MARK: - Route-snapped interpolation
@@ -317,7 +465,7 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             )
         }
         marker.position = path[segmentIndex + 1]
-        marker.rotation = heading - 90
+        marker.rotation = heading
         CATransaction.commit()
 
         let traveledIndex = startIndexInFullPolyline + segmentIndex + 1
@@ -347,13 +495,15 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
         marker: GMSMarker,
         routeOverlay: GMSPolyline?,
         home: CLLocationCoordinate2D,
+        restaurant: CLLocationCoordinate2D,
+        showAllMarkers: Bool,
         coordinator: MapCoordinator,
         uiView: GMSMapView
     ) {
         guard !polylineCoordinates.isEmpty else {
             marker.position = targetCoordinate
             coordinator.currentDisplayCoordinate = targetCoordinate
-            fitCamera(uiView, home: home, rider: targetCoordinate, remainingPolyline: polylineCoordinates)
+            fitCamera(uiView, home: home, restaurant: restaurant, rider: targetCoordinate, showAllMarkers: showAllMarkers, remainingPolyline: polylineCoordinates)
             return
         }
 
@@ -368,7 +518,9 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             fitCamera(
                 uiView,
                 home: home,
+                restaurant: restaurant,
                 rider: targetCoordinate,
+                showAllMarkers: showAllMarkers,
                 remainingPolyline: remainingPolyline(from: targetCoordinate, on: polylineCoordinates)
             )
             return
@@ -397,7 +549,9 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
             fitCamera(
                 uiView,
                 home: home,
+                restaurant: restaurant,
                 rider: targetCoordinate,
+                showAllMarkers: showAllMarkers,
                 remainingPolyline: remainingPolyline(from: targetCoordinate, on: polylineCoordinates)
             )
 
@@ -413,6 +567,8 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
                     marker: marker,
                     routeOverlay: routeOverlay,
                     home: home,
+                    restaurant: restaurant,
+                    showAllMarkers: showAllMarkers,
                     coordinator: coordinator,
                     uiView: uiView
                 )

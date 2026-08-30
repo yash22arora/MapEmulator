@@ -4,3 +4,10 @@ export interface LocationUpdate {
   lng: number;
   ts: number;
 }
+
+export type StatusType =
+  | "pendingConfirmation"
+  | "restaurantPreparingOrder"
+  | "riderReachingRestaurant"
+  | "riderPickedOrder"
+  | "delivered";

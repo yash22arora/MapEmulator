@@ -173,24 +173,60 @@
         min-width: 70px;
       }
 
-      .primary-button {
-        font: inherit;
-        font-size: 13px;
-        font-weight: 600;
-        color: #fff;
-        background: var(--accent);
-        border: none;
-        border-radius: 8px;
-        padding: 9px 16px;
-        cursor: pointer;
+      .status-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+        gap: 6px;
+        padding: 12px 24px;
+        background: #fff;
+        border-bottom: 1px solid #e3e5ea;
       }
 
-      .primary-button:hover {
+      .status-step {
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        border-radius: 999px;
+        padding: 7px 14px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .status-step:disabled {
+        cursor: default;
+      }
+
+      /* Already reached -- done, not clickable again. */
+      .status-step.completed {
+        background: #e8f5ec;
+        color: #2f8f52;
+        border-color: #cdead8;
+      }
+
+      /* The one clickable step -- what happens next. */
+      .status-step.current {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .status-step.current:hover {
         filter: brightness(1.08);
       }
 
-      .primary-button:active {
-        filter: brightness(0.94);
+      /* Not reached yet, and not next -- locked. */
+      .status-step.future {
+        background: #f0f1f4;
+        color: #a7abb8;
+        border-color: #e3e5ea;
+      }
+
+      .status-arrow {
+        font-size: 14px;
+        color: #c2c5cf;
+        flex-shrink: 0;
       }
 
       #map {
@@ -219,11 +255,9 @@
           Low-Network Mode
         </label>
         <span id="queueStatus"></span>
-        <button id="markDeliveredButton" class="primary-button" type="button">
-          Mark as Delivered
-        </button>
       </div>
     </div>
+    <div class="status-bar" id="statusBar"></div>
     <div id="map"></div>
 
     <script>
@@ -235,31 +269,100 @@
       const topicInput = document.getElementById("topic");
       const lowNetworkToggle = document.getElementById("lowNetworkToggle");
       const queueStatus = document.getElementById("queueStatus");
-      const markDeliveredButton = document.getElementById("markDeliveredButton");
+      const statusBar = document.getElementById("statusBar");
       let marker;
       let queuedUpdates = [];
 
-      markDeliveredButton.addEventListener("click", async () => {
-        const topic = topicInput.value.trim();
-        if (!topic) {
-          alert("Enter a topic before marking as delivered.");
-          return;
+      // Order matches StatusType on both the backend and iOS exactly --
+      // the raw values sent over the wire must match, case for case.
+      const STATUSES = [
+        "pendingConfirmation",
+        "restaurantPreparingOrder",
+        "riderReachingRestaurant",
+        "riderPickedOrder",
+        "delivered",
+      ];
+      const STATUS_LABELS = {
+        pendingConfirmation: "Order Placed",
+        restaurantPreparingOrder: "Confirm Order",
+        riderReachingRestaurant: "Rider → Restaurant",
+        riderPickedOrder: "Picked Up",
+        delivered: "Delivered",
+      };
+
+      // currentStageIndex tracks the stage this control panel *believes*
+      // the topic is already at -- purely a local guess, reset whenever
+      // the topic field changes. There's no way to ask the backend "what
+      // stage is this topic actually at" (no GET endpoint for it), so
+      // switching to a topic that's already progressed via another
+      // session or a page reload will look like it's back at the start.
+      let currentStageIndex = 0; // matches the backend's default (pendingConfirmation)
+
+      const statusButtons = STATUSES.map((status, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "status-step";
+        button.textContent = STATUS_LABELS[status];
+        button.addEventListener("click", () => advanceToStatus(status, index));
+        statusBar.appendChild(button);
+
+        if (index < STATUSES.length - 1) {
+          const arrow = document.createElement("span");
+          arrow.className = "status-arrow";
+          arrow.textContent = "→";
+          statusBar.appendChild(arrow);
         }
 
+        return button;
+      });
+
+      function renderStatusButtons() {
+        const topic = topicInput.value.trim();
+        const nextIndex = currentStageIndex + 1;
+
+        statusButtons.forEach((button, index) => {
+          button.classList.remove("completed", "current", "future");
+
+          if (index <= currentStageIndex) {
+            button.disabled = true;
+            button.classList.add("completed");
+          } else if (topic && index === nextIndex) {
+            button.disabled = false;
+            button.classList.add("current");
+          } else {
+            button.disabled = true;
+            button.classList.add("future");
+          }
+        });
+      }
+
+      async function advanceToStatus(status, index) {
+        const topic = topicInput.value.trim();
+        if (!topic) return;
+
         try {
-          const response = await fetch("/location/complete", {
+          const response = await fetch("/location/status", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ topic }),
+            body: JSON.stringify({ topic, status }),
           });
           if (!response.ok) {
             throw new Error(`Server responded ${response.status}`);
           }
+          currentStageIndex = index;
+          renderStatusButtons();
         } catch (error) {
-          console.error("Failed to mark as delivered:", error);
-          alert("Failed to mark as delivered. See console for details.");
+          console.error("Failed to update status:", error);
+          alert("Failed to update status. See console for details.");
         }
+      }
+
+      topicInput.addEventListener("input", () => {
+        currentStageIndex = 0;
+        renderStatusButtons();
       });
+
+      renderStatusButtons();
 
       function updateQueueStatus() {
         queueStatus.textContent = queuedUpdates.length

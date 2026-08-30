@@ -194,6 +194,37 @@ expansion and each new phase's ordering.
       Delivered" button and Customer's status card (delivered state,
       home-marker halo) wired up — see the Phase 14 entry in
       progress-log.md for the two review rounds' worth of bugs found.
+- [x] Phase 15 — Order lifecycle state machine. New `StatusType` union
+      (`pendingConfirmation` → `restaurantPreparingOrder` →
+      `riderReachingRestaurant` → `riderPickedOrder` → `delivered`) shared
+      wire-for-wire between backend and iOS. Non-terminal transitions ride
+      a new `event: status` SSE frame (`TopicChannel.updateStatus`);
+      `delivered` still routes through Phase 14's `markAsCompleted()`
+      rather than becoming a plain status frame, since it's terminal.
+      `POST /location/complete` renamed to `POST /location/status` with
+      the target status in the body, validated against a `VALID_STATUSES`
+      array kept in `server.ts` rather than `types.d.ts` (a `.d.ts` file
+      can't hold a runtime value). iOS gained a `StreamEvent` enum
+      (`.location` / `.statusChanged`) so the SSE parser can route
+      `event: status` frames without touching the existing
+      completed-signals-a-clean-stream-end path. Customer map now shows a
+      restaurant marker (with a small "Pizza Bakery" label composited onto
+      the icon) and a decorative curved line to home before a rider
+      exists; the rider marker pops in at `riderReachingRestaurant`,
+      routes to the restaurant first (destination now derived from
+      `status`, forced to recompute on a destination change rather than
+      only on drift — see the Phase 15 entry in progress-log.md for the
+      stale-route bug this fixes), then to home once `riderPickedOrder`
+      fires, at which point the curved line disappears and the camera
+      frame narrows from all three markers down to rider+home. Route
+      polyline is explicitly cleared once `delivered`. Rider emulator
+      (`backend/public/index.html`) gained a sequential status-button bar
+      (arrows between steps, completed/current/future styling) driving
+      `POST /location/status`, replacing the old standalone "Mark as
+      Delivered" button. Renumbered from the owner's original "Phase 16"
+      to the next sequential slot, 15 — see the Phase 15 entry in the
+      design spec's Amendments. **Concept quiz for this phase is still
+      outstanding** — see docs/learning-log.md.
 
 Stretch goals (not started until core phases are done): auto-drive-a-route
 mode, replay buffer on reconnect, topic list/discovery UI. (Dynamic camera

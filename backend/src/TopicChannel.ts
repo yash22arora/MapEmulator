@@ -1,5 +1,6 @@
 import { DummyQueue } from "./queue";
 import { Response } from "express";
+import { StatusType } from "./types";
 
 interface ITopicChannel<T extends { ts: number }> {
   topic: string;
@@ -10,6 +11,7 @@ interface ITopicChannel<T extends { ts: number }> {
   pushEvent: (item: T) => void;
   start: () => void;
   stop: () => void;
+  updateStatus: (status: StatusType) => void;
   markAsCompleted: () => void;
 }
 
@@ -23,6 +25,10 @@ export class TopicChannel<
   private started: boolean = false;
   private intervalId: NodeJS.Timeout | null = null;
   private isCompleted: boolean = false;
+  // pendingConfirmation is the natural starting point for a freshly
+  // created topic -- an order that's never been touched is, by
+  // definition, awaiting confirmation.
+  private lastStatus: StatusType = "pendingConfirmation";
 
   private COMPLETED_FRAME = "event: completed\ndata: {}\n\n";
 
@@ -46,9 +52,17 @@ export class TopicChannel<
     });
 
     this.connections.add(conn);
+
     if (this.isCompleted) {
+      // A client connecting to an already-completed topic (e.g. reopening
+      // tracking after delivery) should see that immediately, not a stale
+      // in-progress status followed by silence.
       this.writeRaw(conn, this.COMPLETED_FRAME);
-    } else if (this.lastEmittedItem) {
+      return;
+    }
+
+    this.writeStatus(conn, this.lastStatus);
+    if (this.lastEmittedItem) {
       this.writeToConnection(conn, this.lastEmittedItem);
     }
   }
@@ -77,11 +91,35 @@ export class TopicChannel<
     }
   }
 
+  private writeStatus(conn: Response, status: StatusType) {
+    this.writeRaw(conn, `event: status\ndata: ${JSON.stringify({ status })}\n\n`);
+  }
+
   pushEvent(item: T) {
     if (this.isCompleted) {
       return;
     } // Ignore new events if the topic is marked as completed
     this.queue.enqueue(item);
+  }
+
+  // "delivered" is handled by markAsCompleted (terminal: closes the
+  // connections and stops broadcasting) rather than as a plain status
+  // frame, since a plain data:/status frame can't express "the stream is
+  // ending" -- see Phase 13/14. Every other status is a routine,
+  // non-terminal update.
+  updateStatus(status: StatusType) {
+    if (this.isCompleted) {
+      return;
+    }
+    if (status === "delivered") {
+      this.markAsCompleted();
+      return;
+    }
+
+    this.lastStatus = status;
+    this.connections.forEach((conn) => {
+      this.writeStatus(conn, status);
+    });
   }
 
   markAsCompleted() {

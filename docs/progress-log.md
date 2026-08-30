@@ -902,3 +902,117 @@ polish pass above) wired to actually `POST /location/complete`.
 correctly flips the Customer's status card to the delivered state with no
 further retries, both fixed bugs (event-prefix parsing, missing
 stop/close) confirmed working after their respective fixes.
+
+---
+
+## Phase 15 — Order lifecycle state machine
+
+**Design:** owner wanted the full delivery lifecycle
+(`pendingConfirmation` → `restaurantPreparingOrder` →
+`riderReachingRestaurant` → `riderPickedOrder` → `delivered`) modeled end
+to end: a restaurant marker with no rider until dispatch, a decorative
+line from restaurant to home before that, the rider appearing and routing
+to the restaurant first, then picking up and routing home. Two design
+questions were resolved before writing code: the restaurant's coordinate
+is a hardcoded constant (no new "where's the restaurant" input needed),
+and status transitions are trusted client-side rather than
+server-validated as a strict sequence (the admin dashboard is the only
+producer of status changes, and over-engineering sequence enforcement
+wasn't worth it for an emulator).
+
+**Claude-implemented, backend (`TopicChannel.ts`, `server.ts`,
+`types.d.ts`):** `StatusType` union added to `types.d.ts`. First attempt
+also put a `STATUS_VALUES` runtime validation array in the same file —
+caught immediately that `.d.ts` files are type-only and can't hold a
+runtime value, so the array moved to `server.ts` as `VALID_STATUSES`
+instead. `TopicChannel` gained `lastStatus` (defaults to
+`pendingConfirmation`, the natural state of a freshly created topic) and
+`updateStatus(status)`: for every status except `delivered`, broadcasts a
+new `event: status\ndata: {"status": ...}` frame to every connection and
+updates `lastStatus` so late joiners get replayed the current status via
+`addConnection` (extending the Phase 12 replay-on-join behavior).
+`delivered` is deliberately **not** treated as just another status frame
+— it's routed straight into the existing `markAsCompleted()` from Phase
+14, because a plain status frame can't express "the stream is ending,"
+the same reasoning that motivated the separate `completed` event in the
+first place. `POST /location/complete` was replaced with
+`POST /location/status`, validating the incoming status against
+`VALID_STATUSES` before calling `topicChannel.updateStatus()`.
+
+**Owner-implemented, iOS SSE parsing (`LiveViewDataManager.swift`):**
+generalized from Phase 14's single special-cased `completed` event to a
+`StreamEvent` enum (`.location(LocationUpdate)` /
+`.statusChanged(StatusType)`) yielded from the stream, with `EventType`
+gaining a `.status` case. The `event:`/`data:` parsing loop now switches
+on `lastEventName` when a `data:` line arrives, decoding a `StatusPayload`
+for `event: status` frames and a `LocationUpdate` for anything else, while
+`completed` still throws `StreamCompletedIntentionally()` rather than
+yielding a value (it stays a stream-ending signal, not a data event) —
+`LiveViewViewModel.startFetchingRiderLocation` switches on the yielded
+`StreamEvent` case to update either `riderLocation` or `status`.
+
+**Claude-implemented on request, Customer map
+(`GoogleMapsViewRepresentable.swift`, `LiveViewViewModel.swift`,
+`CustomerView.swift`):** restaurant marker (`food-marker` PNG) and a
+decorative curved line to home (quadratic-Bezier-sampled path, solid
+rather than dashed — Google Maps' dashed-stroke API wasn't verified
+against real docs, so left deliberately simplified) are drawn on
+`makeUIView` alongside the existing home marker/halo. The rider marker
+only appears once a location update arrives (i.e. at
+`riderReachingRestaurant`, per the admin dashboard's button sequence
+below). `LiveViewViewModel.currentDestination` derives the `MKDirections`
+destination from `status` — the restaurant for every status up through
+pickup, home only once `riderPickedOrder`/`delivered`. `showAllMarkers`
+(`status != .riderPickedOrder`) gates whether `fitCamera`'s bounds include
+the restaurant, and whether the curved pre-dispatch line stays on the map
+— both switch together, only once the order is actually out for delivery,
+not the moment the rider first appears. Bottom-heavy `cameraFitInsets`
+(top/bottom padding increased twice over two rounds of feedback, ending
+at 140/280 vs. 60 on the sides) keeps all three markers clear of the
+bottom status card. A restaurant name label ("Pizza Bakery") is
+composited onto the marker's icon image via a new `labeledMarkerImage`
+helper — `GMSMarker` has no separate caption API, so the icon + a small
+white pill-shaped text badge are drawn into one image, with the returned
+`groundAnchor` adjusted so the icon's own tip (not the taller combined
+image) still pins to the actual coordinate.
+
+**Bugs found and fixed during this phase, all Claude-caught while
+re-reading the file for coherence after each request:**
+1. The initial "frame home+restaurant on load" call was placed in
+   `makeUIView`, where `GMSMapView` is constructed with `frame: .zero` —
+   SwiftUI hasn't laid the view out yet at that point, so
+   `GMSCoordinateBounds.fit` has no real bounds to compute a zoom/center
+   against. Moved into `updateUIView`'s no-rider-yet branch instead, which
+   fires again once real layout has happened.
+2. Switching the routing destination from restaurant to home at
+   `riderPickedOrder` didn't actually take effect promptly: the existing
+   drift-threshold check (`route.polyline.distance(to:) <= threshold`)
+   only asks "has the rider moved far from the current route," and right
+   at the status flip the rider is still standing on the old
+   restaurant-bound route, so the check would have kept the stale route
+   indefinitely. Fixed by tracking `lastRouteDestination` and forcing a
+   recompute whenever the destination itself changes, plus adding
+   `.onChange(of: viewModel.status)` in `CustomerView` so the switch fires
+   immediately rather than waiting on the next location ping.
+3. Once `delivered` fires, `LiveViewViewModel.route` is cleared to `nil`
+   (no more updates are coming), but the `GMSPolyline` overlay the map had
+   already drawn was never being removed — the sync block only handled
+   the "draw/update when `route` is present" side. Added the symmetric
+   `else` branch that takes the leftover overlay off the map when `route`
+   goes back to `nil`.
+
+**Owner-implemented, admin dashboard (`backend/public/index.html`):**
+sequential status-button bar (arrows between steps) replacing the old
+standalone "Mark as Delivered" button, driving the new
+`POST /location/status`. Buttons are disabled until a topic is entered;
+`currentStageIndex` (a local guess only — there's no `GET` endpoint to
+ask the backend what stage a topic is actually at) drives three visual
+states per button: `completed` (index already passed, disabled),
+`current` (the one next-clickable step), `future` (not reachable yet,
+disabled) — distinguishing "already done" from "not yet possible" rather
+than leaving both simply grayed out. Resets to index 0 whenever the topic
+field changes. The existing map-click/pin-drop and low-network-queue
+logic was left untouched.
+
+**Not yet done:** concept quiz for this phase (see
+docs/learning-log.md) — outstanding as of this entry.

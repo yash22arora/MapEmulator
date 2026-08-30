@@ -14,18 +14,34 @@ enum BackendConfig {
 
 enum EventType: String {
     case location
+    case status
     case completed
+}
+
+/// The stream now carries two different kinds of value -- a location
+/// update, or a non-terminal status change -- since both flow through the
+/// same SSE connection as of Phase 15. `completed` stays out of this enum
+/// deliberately: it's terminal (the stream itself ends), so it's still
+/// expressed by throwing StreamCompletedIntentionally, not by yielding a
+/// value.
+enum StreamEvent {
+    case location(LocationUpdate)
+    case statusChanged(StatusType)
+}
+
+private struct StatusPayload: Decodable {
+    let status: StatusType
 }
 
 struct StreamCompletedIntentionally: Error {}
 
 protocol LiveViewDataManaging {
-    func startStreaming(topic: String, onComplete: @escaping () -> Void) -> AsyncThrowingStream<LocationUpdate, Error>
+    func startStreaming(topic: String) -> AsyncThrowingStream<StreamEvent, Error>
     func sendLocationUpdate(payload: LocationUpdate) async throws
 }
 
 class LiveViewDataManager: LiveViewDataManaging {
-    func startStreaming(topic: String, onComplete: @escaping () -> Void) -> AsyncThrowingStream<LocationUpdate, Error> {
+    func startStreaming(topic: String) -> AsyncThrowingStream<StreamEvent, Error> {
         let retryLimit = 4
         let baseBackoffNanoseconds: UInt64 = 500_000_000
 
@@ -67,21 +83,29 @@ class LiveViewDataManager: LiveViewDataManaging {
                         currentRetryCount = 0
 
                         for try await line in bytes.lines {
-                            
+
                             if line.hasPrefix("event: ") {
                                 let eventName = line.trimmingPrefix("event: ")
                                 lastEventName = eventName.lowercased()
                             }
 
                             if line.hasPrefix("data: ") {
-                                if lastEventName == EventType.completed.rawValue {
-                                    lastEventName = ""
-                                    throw StreamCompletedIntentionally()
-                                }
                                 let payload = line.trimmingPrefix("data: ")
-                                let decoder = JSONDecoder()
-                                let update = try decoder.decode(LocationUpdate.self, from: Data(payload.utf8))
-                                continuation.yield(update)
+                                let currentEventName = lastEventName
+                                lastEventName = ""
+
+                                switch currentEventName {
+                                case EventType.completed.rawValue:
+                                    throw StreamCompletedIntentionally()
+                                case EventType.status.rawValue:
+                                    let decoder = JSONDecoder()
+                                    let statusPayload = try decoder.decode(StatusPayload.self, from: Data(payload.utf8))
+                                    continuation.yield(.statusChanged(statusPayload.status))
+                                default:
+                                    let decoder = JSONDecoder()
+                                    let update = try decoder.decode(LocationUpdate.self, from: Data(payload.utf8))
+                                    continuation.yield(.location(update))
+                                }
                             }
                         }
 
@@ -90,8 +114,10 @@ class LiveViewDataManager: LiveViewDataManaging {
                         // through and retry, not a final success.
                     } catch {
                         if error is StreamCompletedIntentionally {
-                            continuation.finish() // Deliberate ending of stream by server - Marked as delivered etc.
-                            onComplete()
+                            // Deliberate ending of stream by server (marked delivered) --
+                            // the consumer infers this from the loop ending with no
+                            // error, same as any other clean AsyncThrowingStream finish.
+                            continuation.finish()
                             return
                         }
 

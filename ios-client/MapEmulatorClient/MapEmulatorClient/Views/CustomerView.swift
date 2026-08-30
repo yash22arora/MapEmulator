@@ -20,7 +20,13 @@ struct CustomerView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            GoogleMapsViewRepresentable(riderLocation: viewModel.riderLocation, homeCoordinate: viewModel.homeCoordinate.coordinate, route: viewModel.route)
+            GoogleMapsViewRepresentable(
+                riderLocation: viewModel.riderLocation,
+                homeCoordinate: viewModel.homeCoordinate.coordinate,
+                restaurantCoordinate: viewModel.restaurantCoordinate.coordinate,
+                status: viewModel.status,
+                route: viewModel.route
+            )
                 .ignoresSafeArea()
 
             DeliveryStatusCard(status: viewModel.status, etaMinutes: etaMinutes)
@@ -44,12 +50,23 @@ struct CustomerView: View {
             await viewModel.startFetchingRiderLocation(topic: topic)
         }
         .onChange(of: viewModel.riderLocation) {
-            if let routeTask = routeTask {
-                routeTask.cancel()
-            }
-            routeTask = Task {
-                await viewModel.requestMapRoute()
-            }
+            refreshRoute()
+        }
+        .onChange(of: viewModel.status) {
+            // Status flips (e.g. riderReachingRestaurant -> riderPickedOrder)
+            // swap the routing destination even when the rider's raw
+            // coordinate hasn't moved -- without this, the switch to the
+            // home-bound route would only land on the *next* location ping.
+            refreshRoute()
+        }
+    }
+
+    private func refreshRoute() {
+        if let routeTask = routeTask {
+            routeTask.cancel()
+        }
+        routeTask = Task {
+            await viewModel.requestMapRoute()
         }
     }
 }
@@ -94,13 +111,38 @@ private struct DeliveryStatusCard: View {
         }
     }
 
+    private var title: String {
+        switch status {
+        case .pendingConfirmation: return "Order Placed"
+        case .restaurantPreparingOrder: return "Preparing your order"
+        case .riderReachingRestaurant: return "Rider heading to restaurant"
+        case .riderPickedOrder: return "Out for delivery"
+        case .delivered: return ""
+        }
+    }
+
+    private var subtitle: String {
+        switch status {
+        case .pendingConfirmation: return "Waiting for the restaurant to confirm"
+        case .restaurantPreparingOrder: return "The restaurant is preparing your order"
+        case .riderReachingRestaurant: return "Your rider is heading to the restaurant"
+        case .riderPickedOrder: return "Your rider is on the way"
+        case .delivered: return ""
+        }
+    }
+
+    /// No rider to call/message before one's actually been dispatched.
+    private var showsRiderContact: Bool {
+        status == .riderReachingRestaurant || status == .riderPickedOrder
+    }
+
     private var inProgressContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Out for delivery")
+                    Text(title)
                         .font(.title3.bold())
-                    Text("Your rider is on the way")
+                    Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -131,16 +173,18 @@ private struct DeliveryStatusCard: View {
 
                 Spacer()
 
-                HStack(spacing: 10) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 30))
-                        .foregroundStyle(.orange)
+                if showsRiderContact {
+                    HStack(spacing: 10) {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundStyle(.orange)
 
-                    Image(systemName: "phone.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.orange)
-                        .padding(10)
-                        .background(.orange.opacity(0.15), in: .circle)
+                        Image(systemName: "phone.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                            .padding(10)
+                            .background(.orange.opacity(0.15), in: .circle)
+                    }
                 }
             }
         }
