@@ -56,9 +56,27 @@ export class TopicChannel<
     if (this.isCompleted) {
       // A client connecting to an already-completed topic (e.g. reopening
       // tracking after delivery) should see that immediately, not a stale
-      // in-progress status followed by silence.
+      // in-progress status followed by silence. Also matches the "don't
+      // relay/save rider location once delivered" requirement -- we never
+      // reach the location-replay logic below.
       this.writeRaw(conn, this.COMPLETED_FRAME);
       return;
+    }
+
+    // The broadcast interval (start()/stop()) only runs while at least one
+    // connection is open, so a location posted while the topic was idle
+    // (zero connections) never gets promoted into lastEmittedItem -- it's
+    // just sitting in the queue, unbroadcast. Only drain it here on the
+    // connection that brings the topic from 0 -> 1: if others are already
+    // connected, the interval is already running for them, and draining
+    // the queue early would steal an item out from under its next tick
+    // before it gets a chance to broadcast it to those existing clients.
+    if (this.connections.size === 1) {
+      const recentItem = this.queue.getRecentItem();
+      if (recentItem) {
+        this.lastEmittedItem = recentItem;
+        this.queue.empty();
+      }
     }
 
     this.writeStatus(conn, this.lastStatus);
@@ -125,6 +143,7 @@ export class TopicChannel<
   markAsCompleted() {
     this.isCompleted = true;
     this.queue.empty(); // Clear the queue since no more events will be sent
+    this.lastEmittedItem = null; // Nothing left to relay/cache once delivered
     this.connections.forEach((conn) => {
       this.writeRaw(conn, this.COMPLETED_FRAME);
       conn.end(); // Close the connection after sending the completed frame
