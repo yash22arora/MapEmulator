@@ -144,7 +144,7 @@ struct GoogleMapsViewRepresentable: UIViewRepresentable {
                 existingPolyline.path = path
             } else {
                 let polyline = GMSPolyline(path: path)
-                polyline.strokeColor = .systemOrange
+                polyline.strokeColor = .brandRed
                 polyline.strokeWidth = 4
                 polyline.map = uiView
                 coordinator.polyline = polyline

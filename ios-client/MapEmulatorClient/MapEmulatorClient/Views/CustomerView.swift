@@ -177,13 +177,13 @@ private struct DeliveryStatusCard: View {
                     HStack(spacing: 10) {
                         Image(systemName: "person.crop.circle.fill")
                             .font(.system(size: 30))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.brandRed)
 
                         Image(systemName: "phone.fill")
                             .font(.subheadline)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.brandRed)
                             .padding(10)
-                            .background(.orange.opacity(0.15), in: .circle)
+                            .background(Color.brandRed.opacity(0.15), in: .circle)
                     }
                 }
             }
